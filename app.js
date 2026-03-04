@@ -1,7 +1,7 @@
 // ====== CONFIG ======
 // ВСТАВЬ СЮДА:
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE";
+const SUPABASE_ANON_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
 
 // Discord Bot Client ID (чтобы делать Invite ссылку)
 const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
