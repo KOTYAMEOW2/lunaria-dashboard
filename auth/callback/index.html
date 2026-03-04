@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunaria Fox Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+body {
+  margin:0;
+  font-family:sans-serif;
+  background:#1a0f25;
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+}
+
+.card{
+  background:#241235;
+  padding:40px;
+  border-radius:20px;
+  text-align:center;
+  width:320px;
+}
+
+button{
+  background:#8b5cf6;
+  border:none;
+  padding:12px 20px;
+  border-radius:10px;
+  color:white;
+  font-size:16px;
+  cursor:pointer;
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="card">
+<h1>🌙 Lunaria Fox</h1>
+<p>Авторизация...</p>
+</div>
+
+<script>
+
+const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co"
+const SUPABASE_ANON = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd"
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON)
+
+async function handleLogin(){
+
+const hash = window.location.hash
+
+if(hash){
+const params = new URLSearchParams(hash.replace("#",""))
+
+const access_token = params.get("access_token")
+
+if(access_token){
+
+await supabase.auth.setSession({
+access_token:access_token,
+refresh_token:params.get("refresh_token")
+})
+
+window.location.href="/"
+
+}
+
+}
+
+}
+
+handleLogin()
+
+</script>
+
+</body>
+</html>
