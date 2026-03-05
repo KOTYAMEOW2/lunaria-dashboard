@@ -1,106 +1,161 @@
-// ===== Discord 429 protection + cache =====
-const DISCORD_API = "https://discord.com/api/v10";
-const GUILDS_CACHE_KEY = "lunaria_guilds_cache_v1";
-const GUILDS_CACHE_TTL_MS = 60_000; // 60 секунд
+const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co"
+const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY"
 
-let guildsRequestInFlight = null;
+const { createClient } = window.supabase
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+const view = document.getElementById("view")
+
+const DISCORD_API = "https://discord.com/api/v10"
+
+let guildCache = null
+let guildCacheTime = 0
+let guildRequestRunning = false
 
 function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise(r => setTimeout(r, ms))
 }
 
-function readGuildsCache() {
-  try {
-    const raw = sessionStorage.getItem(GUILDS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.ts || !parsed.data) return null;
-    if (Date.now() - parsed.ts > GUILDS_CACHE_TTL_MS) return null;
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
+async function discordFetch(url, token) {
 
-function writeGuildsCache(data) {
-  try {
-    sessionStorage.setItem(
-      GUILDS_CACHE_KEY,
-      JSON.stringify({ ts: Date.now(), data })
-    );
-  } catch {}
-}
+  let attempts = 0
 
-async function discordFetchWithRetry(path, token, tries = 5) {
-  let attempt = 0;
+  while (attempts < 5) {
 
-  while (attempt < tries) {
-    attempt++;
+    attempts++
 
-    const res = await fetch(`${DISCORD_API}${path}`, {
+    const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+        Authorization: `Bearer ${token}`
+      }
+    })
 
-    // OK
-    if (res.ok) return res;
+    if (res.ok) return res
 
-    // 429 rate limit
     if (res.status === 429) {
-      let waitMs = 1000;
 
-      // Discord часто возвращает JSON с retry_after (в секундах)
+      let retry = 1000
+
       try {
-        const data = await res.clone().json();
-        if (typeof data?.retry_after === "number") {
-          waitMs = Math.ceil(data.retry_after * 1000);
-        }
+        const data = await res.clone().json()
+        if (data.retry_after) retry = data.retry_after * 1000
       } catch {}
 
-      // иногда есть Retry-After header (сек)
-      const ra = res.headers.get("Retry-After");
-      if (ra && !Number.isNaN(Number(ra))) {
-        waitMs = Math.max(waitMs, Math.ceil(Number(ra) * 1000));
-      }
+      console.warn("Discord rate limit, waiting", retry)
 
-      // небольшой буфер, чтобы точно отпустило
-      waitMs += 250;
+      await sleep(retry + 200)
 
-      // можешь заменить на вывод в UI, если у тебя есть функция showError/showToast
-      console.warn(`[Discord 429] waiting ${waitMs}ms then retry...`);
-
-      await sleep(waitMs);
-      continue;
+      continue
     }
 
-    // другие ошибки — выходим с текстом
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Discord API error (${res.status}): ${txt}`);
+    throw new Error("Discord API error " + res.status)
   }
 
-  throw new Error(`Discord API error: too many 429 retries`);
+  throw new Error("Too many Discord retries")
 }
 
-async function fetchUserGuildsSafe(token) {
-  // 1) кеш
-  const cached = readGuildsCache();
-  if (cached) return cached;
+async function fetchGuilds(token) {
 
-  // 2) анти-дубль (если кто-то уже запросил — ждём тот же Promise)
-  if (guildsRequestInFlight) return guildsRequestInFlight;
+  if (guildCache && Date.now() - guildCacheTime < 60000) {
+    return guildCache
+  }
 
-  guildsRequestInFlight = (async () => {
-    const res = await discordFetchWithRetry("/users/@me/guilds", token, 6);
-    const data = await res.json();
-    writeGuildsCache(data);
-    return data;
-  })();
+  if (guildRequestRunning) {
+    await sleep(500)
+    return guildCache
+  }
+
+  guildRequestRunning = true
+
+  const res = await discordFetch(
+    DISCORD_API + "/users/@me/guilds",
+    token
+  )
+
+  const guilds = await res.json()
+
+  guildCache = guilds
+  guildCacheTime = Date.now()
+
+  guildRequestRunning = false
+
+  return guilds
+}
+
+async function render() {
+
+  const { data } = await supabase.auth.getSession()
+
+  const session = data.session
+
+  if (!session) {
+
+    view.innerHTML = `
+    <button id="login">Login with Discord</button>
+    `
+
+    document.getElementById("login").onclick = async () => {
+
+      await supabase.auth.signInWithOAuth({
+        provider: "discord",
+        options: {
+          redirectTo: location.origin
+        }
+      })
+
+    }
+
+    return
+  }
+
+  const token = session.provider_token
+
+  let guilds = []
 
   try {
-    return await guildsRequestInFlight;
-  } finally {
-    guildsRequestInFlight = null;
+
+    guilds = await fetchGuilds(token)
+
+  } catch (err) {
+
+    view.innerHTML = `
+    <div class="error">
+    Не смогла получить гильдии: ${err.message}
+    </div>
+    `
+
+    return
   }
+
+  const MANAGE_GUILD = 0x20
+
+  const filtered = guilds.filter(
+    g => g.owner || (g.permissions & MANAGE_GUILD)
+  )
+
+  let html = `
+  <h2>Гильдии</h2>
+  `
+
+  if (!filtered.length) {
+
+    html += `<div>Не нашла гильдий с правами управления</div>`
+
+  } else {
+
+    filtered.forEach(g => {
+
+      html += `
+      <div class="guild">
+        <b>${g.name}</b>
+        <div>ID: ${g.id}</div>
+      </div>
+      `
+    })
+
+  }
+
+  view.innerHTML = html
 }
-// ===== end protection =====
+
+render()
