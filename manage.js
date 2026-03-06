@@ -28,6 +28,11 @@ function getGuildIdFromUrl() {
   return url.searchParams.get("guild");
 }
 
+function getGuildIconUrl(guildId, icon) {
+  if (!guildId || !icon) return "";
+  return `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=128`;
+}
+
 async function initManage() {
   try {
     const guildId = getGuildIdFromUrl();
@@ -41,7 +46,12 @@ async function initManage() {
       return;
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      manageView.innerHTML = `<p class="error">Ошибка сессии: ${escapeHtml(sessionError.message)}</p>`;
+      return;
+    }
 
     if (!session) {
       location.href = "./";
@@ -57,7 +67,7 @@ async function initManage() {
 
     const { data: adminRow, error: adminError } = await supabase
       .from("guild_admins")
-      .select("guild_id")
+      .select("guild_id, role")
       .eq("guild_id", guildId)
       .eq("user_id", discordId)
       .maybeSingle();
@@ -78,7 +88,7 @@ async function initManage() {
 
     const { data: guild, error: guildError } = await supabase
       .from("bot_guilds")
-      .select("*")
+      .select("guild_id, name, icon, updated_at")
       .eq("guild_id", guildId)
       .maybeSingle();
 
@@ -98,12 +108,23 @@ async function initManage() {
     manageView.innerHTML = `
       <a class="btn secondary" href="./">← Назад к серверам</a>
 
-      <div style="height:16px"></div>
+      <div style="height:18px"></div>
 
-      <h1>${escapeHtml(guild.name || guild.guild_name || "Server")}</h1>
-      <p class="small">Guild ID: ${escapeHtml(guild.guild_id)}</p>
+      <div style="display:flex; gap:14px; align-items:center;">
+        ${
+          guild.icon
+            ? `<img src="${getGuildIconUrl(guild.guild_id, guild.icon)}" alt="${escapeHtml(guild.name)}" style="width:64px; height:64px; border-radius:16px; object-fit:cover;">`
+            : `<div style="width:64px; height:64px; border-radius:16px; background:#33285e; display:flex; align-items:center; justify-content:center; font-weight:bold;">LF</div>`
+        }
 
-      <div style="height:20px"></div>
+        <div>
+          <h1 style="margin:0 0 8px;">${escapeHtml(guild.name || "Server")}</h1>
+          <p class="small">Guild ID: ${escapeHtml(guild.guild_id)}</p>
+          <p class="small">Role: ${escapeHtml(adminRow.role || "admin")}</p>
+        </div>
+      </div>
+
+      <div style="height:22px"></div>
 
       <div class="grid-2">
         <div class="card">
