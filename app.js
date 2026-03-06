@@ -1,7 +1,7 @@
 const view = document.getElementById("view");
 
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-const SUPABASE_KEY = "ТВОЙ_PUBLISHABLE_KEY";
+const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function escapeHtml(value) {
