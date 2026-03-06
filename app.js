@@ -5,39 +5,71 @@ const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+function show(text){
+  view.innerHTML = text;
+}
+
 async function init(){
 
-const { data:{ session } } = await supabase.auth.getSession();
+try{
+
+show("Проверка сессии...");
+
+const { data, error } = await supabase.auth.getSession();
+
+if(error){
+  show("Ошибка Supabase: " + error.message);
+  return;
+}
+
+const session = data.session;
 
 if(!session){
-view.innerHTML = '<button onclick="login()">Login with Discord</button>';
+
+show(`
+<h2>Lunaria Fox</h2>
+<button onclick="login()">Login with Discord</button>
+`);
+
 return;
 }
 
-view.innerHTML = `
-<h2>Dashboard</h2>
-<p>Ты вошла через Discord</p>
-
-<h3>Серверы с ботом</h3>
-<div id="guilds">Загрузка...</div>
-`;
+show("Сессия найдена. Загружаем серверы...");
 
 loadGuilds();
+
+}catch(e){
+
+show("JS ошибка: " + (e.message || String(e)));
+
+}
 
 }
 
 async function loadGuilds(){
 
-const guildsDiv = document.getElementById("guilds");
+try{
 
-const { data } = await supabase
+const { data, error } = await supabase
 .from("bot_guilds")
 .select("*");
 
-if(!data || !data.length){
-guildsDiv.innerHTML = "Бот пока нет ни на одном сервере";
+if(error){
+show("Ошибка загрузки серверов: " + error.message);
 return;
 }
+
+if(!data || data.length===0){
+show("Серверы не найдены в базе.");
+return;
+}
+
+view.innerHTML = `
+<h2>Серверы с ботом</h2>
+<div id="guilds"></div>
+`;
+
+const guildsDiv = document.getElementById("guilds");
 
 guildsDiv.innerHTML = data.map(g=>`
 
@@ -54,6 +86,12 @@ ID: ${g.guild_id}
 </div>
 
 `).join("");
+
+}catch(e){
+
+show("Ошибка JS: " + (e.message || String(e)));
+
+}
 
 }
 
