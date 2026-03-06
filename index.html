@@ -1,17 +1,22 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lunaria Fox Dashboard</title>
-<link rel="stylesheet" href="./style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lunaria Fox Dashboard</title>
+  <link rel="stylesheet" href="./style.css?v=debug1" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
-<div class="container">
-<h1>🌙 Lunaria Fox Dashboard</h1>
-<div id="view"></div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="./app.js"></script>
+  <div class="container">
+    <h1>🌙 Lunaria Fox Dashboard</h1>
+    <div id="view">JS ещё не сработал...</div>
+  </div>
+
+  <script>
+    document.getElementById("view").innerHTML = "inline script работает";
+  </script>
+
+  <script src="./app.js?v=debug1"></script>
 </body>
 </html>
