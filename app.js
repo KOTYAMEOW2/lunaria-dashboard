@@ -1,11 +1,15 @@
 const view = document.getElementById("view");
 
-function show(msg) {
-  if (!view) return;
-  view.innerHTML += `<div style="margin-top:10px; padding:10px; border-radius:10px; background:#241b42; white-space:pre-wrap;">${msg}</div>`;
+function setHtml(html) {
+  if (view) view.innerHTML = html;
 }
 
-function esc(value) {
+function addLine(text) {
+  if (!view) return;
+  view.innerHTML += `<div style="margin:8px 0;padding:10px;border:1px solid #333;border-radius:10px;white-space:pre-wrap;word-break:break-word;">${escapeHtml(text)}</div>`;
+}
+
+function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -13,27 +17,6 @@ function esc(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
-try {
-  show("app.js загружен");
-} catch (e) {
-  console.error(e);
-}
-
-const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-
-show("SUPABASE_URL: " + esc(SUPABASE_URL));
-
-if (!window.supabase) {
-  show("ОШИБКА: window.supabase не найден. Значит не загрузился CDN script supabase-js.");
-  throw new Error("Supabase CDN not loaded");
-}
-
-show("window.supabase найден");
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-show("Supabase client создан");
 
 function getDiscordId(user) {
   return (
@@ -45,13 +28,28 @@ function getDiscordId(user) {
   );
 }
 
+const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
+const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+
+setHtml("<p>Старт app.js...</p>");
+
+if (!window.supabase) {
+  addLine("ОШИБКА: window.supabase не найден");
+  throw new Error("Supabase CDN not loaded");
+}
+
+addLine("Supabase CDN найден");
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+addLine("Supabase client создан");
+
 async function login() {
-  show("login() вызван");
+  addLine("Запуск Discord OAuth...");
   await supabase.auth.signInWithOAuth({
     provider: "discord",
     options: {
       scopes: "identify guilds",
-      redirectTo: "https://lunaria-dashboard.lunaria-fox.workers.dev/auth/callback/"
+      redirectTo: "https://lunaria-dashboard.pages.dev/auth/callback/"
     }
   });
 }
@@ -64,61 +62,138 @@ async function logout() {
 window.login = login;
 window.logout = logout;
 
+async function loadManageableGuilds(discordId) {
+  addLine("Читаю guild_admins для user_id = " + discordId);
+
+  const { data: adminRows, error: adminError } = await supabase
+    .from("guild_admins")
+    .select("guild_id, role")
+    .eq("user_id", discordId);
+
+  if (adminError) {
+    throw new Error("guild_admins error: " + adminError.message);
+  }
+
+  addLine("guild_admins rows: " + JSON.stringify(adminRows || []));
+
+  const guildIds = [...new Set((adminRows || []).map(row => row.guild_id))];
+
+  if (!guildIds.length) {
+    return [];
+  }
+
+  addLine("Читаю bot_guilds для guild_ids: " + JSON.stringify(guildIds));
+
+  const { data: guilds, error: guildError } = await supabase
+    .from("bot_guilds")
+    .select("guild_id, name, icon, updated_at")
+    .in("guild_id", guildIds);
+
+  if (guildError) {
+    throw new Error("bot_guilds error: " + guildError.message);
+  }
+
+  addLine("bot_guilds rows: " + JSON.stringify(guilds || []));
+
+  const roleMap = new Map((adminRows || []).map(row => [row.guild_id, row.role || "admin"]));
+
+  return (guilds || []).map(guild => ({
+    ...guild,
+    role: roleMap.get(guild.guild_id) || "admin"
+  }));
+}
+
+function renderLoggedOut() {
+  setHtml(`
+    <h2>Добро пожаловать</h2>
+    <p>Сессии нет. Нужно войти через Discord.</p>
+    <button onclick="login()">Login with Discord</button>
+  `);
+}
+
+function renderNoAccess(user, discordId) {
+  setHtml(`
+    <h2>Ты вошла через Discord</h2>
+    <p><b>${escapeHtml(user?.user_metadata?.full_name || "User")}</b></p>
+    <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+    <button onclick="logout()">Выйти</button>
+    <hr>
+    <p>В guild_admins нет серверов для этого Discord ID.</p>
+  `);
+}
+
+function renderGuilds(user, discordId, guilds) {
+  setHtml(`
+    <h2>Ты вошла через Discord</h2>
+    <p><b>${escapeHtml(user?.user_metadata?.full_name || "User")}</b></p>
+    <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+    <button onclick="logout()">Выйти</button>
+    <hr>
+    <h3>Серверы</h3>
+    <div id="guilds"></div>
+  `);
+
+  const guildsBox = document.getElementById("guilds");
+  guildsBox.innerHTML = guilds.map(g => `
+    <div style="margin:12px 0;padding:12px;border:1px solid #333;border-radius:12px;">
+      <div><b>${escapeHtml(g.name || "Server")}</b></div>
+      <div>Guild ID: ${escapeHtml(g.guild_id)}</div>
+      <div>Role: ${escapeHtml(g.role || "admin")}</div>
+      <div style="margin-top:8px;">
+        <a href="./manage.html?guild=${encodeURIComponent(g.guild_id)}">Manage</a>
+      </div>
+    </div>
+  `).join("");
+}
+
 async function init() {
   try {
-    show("init() стартовал");
+    addLine("init() стартовал");
 
-    const result = await supabase.auth.getSession();
-    show("getSession() выполнен");
-
-    const session = result?.data?.session;
-    const error = result?.error;
+    const { data, error } = await supabase.auth.getSession();
 
     if (error) {
-      show("ОШИБКА getSession(): " + esc(error.message));
+      addLine("Ошибка getSession: " + error.message);
       return;
     }
+
+    addLine("getSession() выполнен");
+
+    const session = data?.session;
 
     if (!session) {
-      view.innerHTML = `
-        <h2>Добро пожаловать</h2>
-        <p class="muted">Сессии нет. Это нормально, если ты ещё не логинилась.</p>
-        <div class="actions">
-          <button onclick="login()">Login with Discord</button>
-        </div>
-      `;
+      addLine("Сессии нет");
+      renderLoggedOut();
       return;
     }
 
+    addLine("Сессия найдена");
+
     const user = session.user;
+    addLine("user: " + JSON.stringify(user, null, 2));
+
     const discordId = getDiscordId(user);
+    addLine("discordId: " + String(discordId));
 
-    view.innerHTML = `
-      <h2>Debug info</h2>
-      <p><b>Сессия найдена</b></p>
-      <p><b>Discord ID:</b> ${esc(discordId || "не найден")}</p>
+    if (!discordId) {
+      setHtml(`
+        <h2>Сессия есть, но Discord ID не найден</h2>
+        <button onclick="logout()">Выйти</button>
+        <pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(JSON.stringify(user, null, 2))}</pre>
+      `);
+      return;
+    }
 
-      <div class="actions">
-        <button class="secondary" onclick="logout()">Выйти</button>
-      </div>
+    const guilds = await loadManageableGuilds(discordId);
 
-      <div class="card">
-        <h3>user_metadata</h3>
-        <pre style="white-space:pre-wrap; overflow:auto;">${esc(JSON.stringify(user?.user_metadata, null, 2))}</pre>
-      </div>
+    if (!guilds.length) {
+      renderNoAccess(user, discordId);
+      return;
+    }
 
-      <div class="card">
-        <h3>app_metadata</h3>
-        <pre style="white-space:pre-wrap; overflow:auto;">${esc(JSON.stringify(user?.app_metadata, null, 2))}</pre>
-      </div>
-
-      <div class="card">
-        <h3>identities</h3>
-        <pre style="white-space:pre-wrap; overflow:auto;">${esc(JSON.stringify(user?.identities, null, 2))}</pre>
-      </div>
-    `;
+    renderGuilds(user, discordId, guilds);
   } catch (e) {
-    show("FATAL ERROR: " + esc(e?.message || String(e)));
+    addLine("FATAL ERROR: " + (e?.message || String(e)));
     console.error(e);
   }
 }
