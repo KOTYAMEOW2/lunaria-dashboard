@@ -22,14 +22,10 @@ async function init() {
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     if (!session) {
-      view.innerHTML = `
-        <button onclick="login()">Login with Discord</button>
-      `;
+      view.innerHTML = `<button onclick="login()">Login with Discord</button>`;
       return;
     }
 
@@ -63,9 +59,7 @@ async function loadGuilds() {
       .from("bot_guilds")
       .select("*");
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     if (!data || !data.length) {
       guildsDiv.innerHTML = "Бот пока нет ни на одном сервере";
