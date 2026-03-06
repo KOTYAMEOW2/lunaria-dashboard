@@ -23,6 +23,11 @@ function getDiscordId(user) {
   );
 }
 
+function getGuildIconUrl(guildId, icon) {
+  if (!guildId || !icon) return "";
+  return `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=128`;
+}
+
 async function login() {
   await supabase.auth.signInWithOAuth({
     provider: "discord",
@@ -41,7 +46,7 @@ async function logout() {
 async function loadManageableGuilds(discordId) {
   const { data: adminRows, error: adminError } = await supabase
     .from("guild_admins")
-    .select("guild_id")
+    .select("guild_id, role")
     .eq("user_id", discordId);
 
   if (adminError) {
@@ -56,14 +61,20 @@ async function loadManageableGuilds(discordId) {
 
   const { data: guilds, error: guildError } = await supabase
     .from("bot_guilds")
-    .select("*")
-    .in("guild_id", guildIds);
+    .select("guild_id, name, icon, updated_at")
+    .in("guild_id", guildIds)
+    .order("updated_at", { ascending: false });
 
   if (guildError) {
     throw new Error("Ошибка bot_guilds: " + guildError.message);
   }
 
-  return guilds || [];
+  const roleMap = new Map((adminRows || []).map(row => [row.guild_id, row.role || "admin"]));
+
+  return (guilds || []).map(guild => ({
+    ...guild,
+    role: roleMap.get(guild.guild_id) || "admin"
+  }));
 }
 
 function renderLoggedOut() {
@@ -88,8 +99,8 @@ function renderNoAccess(user, discordId) {
 
     <div class="card">
       <h3>Серверы</h3>
-      <p>У тебя пока нет серверов в панели.</p>
-      <p class="small">Проверь, есть ли запись в таблице <b>guild_admins</b> для твоего Discord ID.</p>
+      <p>Для этого аккаунта пока нет доступных серверов.</p>
+      <p class="small">Нужно добавить запись в <b>guild_admins</b> с твоим Discord ID и нужным <b>guild_id</b>.</p>
     </div>
   `;
 }
@@ -108,9 +119,21 @@ function renderGuilds(user, discordId, guilds) {
     <div class="card-list">
       ${guilds.map(g => `
         <div class="card">
-          <h3>${escapeHtml(g.name || g.guild_name || "Server")}</h3>
-          <p>ID: ${escapeHtml(g.guild_id)}</p>
-          <div class="actions">
+          <div style="display:flex; gap:14px; align-items:center;">
+            ${
+              g.icon
+                ? `<img src="${getGuildIconUrl(g.guild_id, g.icon)}" alt="${escapeHtml(g.name)}" style="width:56px; height:56px; border-radius:14px; object-fit:cover;">`
+                : `<div style="width:56px; height:56px; border-radius:14px; background:#33285e; display:flex; align-items:center; justify-content:center; font-weight:bold;">LF</div>`
+            }
+
+            <div>
+              <h3 style="margin:0 0 6px;">${escapeHtml(g.name || "Server")}</h3>
+              <p class="small">Guild ID: ${escapeHtml(g.guild_id)}</p>
+              <p class="small">Role: ${escapeHtml(g.role || "admin")}</p>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top:14px;">
             <a class="btn" href="./manage.html?guild=${encodeURIComponent(g.guild_id)}">Manage</a>
           </div>
         </div>
@@ -141,7 +164,7 @@ async function init() {
     if (!discordId) {
       view.innerHTML = `
         <h2>Авторизация прошла, но Discord ID не найден</h2>
-        <p class="small">Нужно проверить, какие поля Supabase вернул после Discord OAuth.</p>
+        <p class="small">Нужно посмотреть объект session.user в консоли.</p>
         <div class="actions">
           <button class="secondary" onclick="logout()">Выйти</button>
         </div>
