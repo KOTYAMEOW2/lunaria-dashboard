@@ -2,15 +2,18 @@ const view = document.getElementById("view");
 
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
-const REDIRECT_TO = `${window.location.origin}/auth/callback/`;
+const REDIRECT_TO = window.location.origin + "/auth/callback/";
 
-function safeString(value) {
-  return String(value ?? "");
+function show(html) {
+  if (!view) {
+    alert("view not found");
+    return;
+  }
+  view.innerHTML = html;
 }
 
-function escapeHtml(value) {
-  return safeString(value)
+function esc(value) {
+  return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -18,312 +21,277 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function render(html) {
-  if (!view) {
-    throw new Error('Element with id="view" was not found');
+function card(title, body) {
+  var html = "";
+  html += '<div class="card">';
+  if (title) {
+    html += "<h2>" + esc(title) + "</h2>";
   }
-  view.innerHTML = html;
+  html += body;
+  html += "</div>";
+  show(html);
 }
 
-function renderCard(title, bodyHtml) {
-  render(`
-    <section class="card">
-      ${title ? `<h2>${escapeHtml(title)}</h2>` : ""}
-      ${bodyHtml}
-    </section>
-  `);
+function showError(text) {
+  card("Ошибка", "<p>" + esc(text) + "</p>");
 }
 
-function renderError(message) {
-  renderCard("Ошибка", `<p>${escapeHtml(message)}</p>`);
-}
-
-function renderLoading(message) {
-  renderCard("", `<p>${escapeHtml(message)}</p>`);
+function bind(id, handler) {
+  var el = document.getElementById(id);
+  if (el) {
+    el.addEventListener("click", handler);
+  }
 }
 
 if (!view) {
-  throw new Error('Element with id="view" was not found');
+  throw new Error('Element with id="view" not found');
 }
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  renderError("Supabase library is not loaded.");
+  showError("Supabase library is not loaded.");
   throw new Error("Supabase library is not loaded.");
 }
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function getDiscordId(user) {
-  const identities = Array.isArray(user?.identities) ? user.identities : [];
-  const discordIdentity = identities.find((identity) => identity?.provider === "discord");
+  if (!user) return null;
 
-  return (
-    discordIdentity?.id ||
-    user?.user_metadata?.provider_id ||
-    user?.user_metadata?.sub ||
-    user?.app_metadata?.provider_id ||
-    null
-  );
+  if (user.user_metadata && user.user_metadata.provider_id) {
+    return user.user_metadata.provider_id;
+  }
+
+  if (user.user_metadata && user.user_metadata.sub) {
+    return user.user_metadata.sub;
+  }
+
+  if (Array.isArray(user.identities)) {
+    for (var i = 0; i < user.identities.length; i += 1) {
+      var identity = user.identities[i];
+      if (identity && identity.provider === "discord" && identity.id) {
+        return identity.id;
+      }
+    }
+  }
+
+  return null;
 }
 
-function getDisplayName(user) {
-  return (
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.name ||
-    user?.email ||
-    "User"
-  );
+function getName(user) {
+  if (!user) return "User";
+  if (user.user_metadata && user.user_metadata.full_name) return user.user_metadata.full_name;
+  if (user.user_metadata && user.user_metadata.name) return user.user_metadata.name;
+  if (user.email) return user.email;
+  return "User";
 }
 
-function getGuildIconUrl(guildId, icon) {
+function getIconUrl(guildId, icon) {
   if (!guildId || !icon) return "";
-  return `https://cdn.discordapp.com/icons/${encodeURIComponent(guildId)}/${encodeURIComponent(icon)}.png?size=128`;
-}
-
-function getInviteUrl() {
-  return `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_BOT_CLIENT_ID)}&scope=bot%20applications.commands&permissions=8`;
+  return "https://cdn.discordapp.com/icons/" + encodeURIComponent(guildId) + "/" + encodeURIComponent(icon) + ".png?size=128";
 }
 
 async function login() {
-  const { error } = await supabase.auth.signInWithOAuth({
+  var result = await supabase.auth.signInWithOAuth({
     provider: "discord",
     options: {
       scopes: "identify guilds",
-      redirectTo: REDIRECT_TO,
-    },
+      redirectTo: REDIRECT_TO
+    }
   });
 
-  if (error) {
-    throw new Error(`login: ${error.message}`);
+  if (result.error) {
+    throw new Error(result.error.message);
   }
 }
 
 async function logout() {
-  const { error } = await supabase.auth.signOut();
+  var result = await supabase.auth.signOut();
 
-  if (error) {
-    throw new Error(`logout: ${error.message}`);
+  if (result.error) {
+    throw new Error(result.error.message);
   }
 
   window.location.href = "./";
 }
 
-function bindAction(id, handler) {
-  const element = document.getElementById(id);
-  if (!element) return;
-  element.addEventListener("click", handler);
-}
-
 function renderLoggedOut() {
-  renderCard(
-    "Добро пожаловать",
-    `
-      <p>Войди через Discord, чтобы открыть список доступных серверов.</p>
-      <div class="actions">
-        <button id="loginBtn" type="button">Login with Discord</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-    `
-  );
+  var html = "";
+  html += "<p>Войди через Discord, чтобы открыть список доступных серверов.</p>";
+  html += '<div class="actions">';
+  html += '<button id="loginBtn" type="button">Login with Discord</button>';
+  html += "</div>";
 
-  bindAction("loginBtn", async () => {
+  card("Добро пожаловать", html);
+
+  bind("loginBtn", async function () {
     try {
       await login();
     } catch (error) {
-      renderError(`Ошибка входа: ${error.message || String(error)}`);
+      showError("Ошибка входа: " + (error && error.message ? error.message : String(error)));
     }
   });
 }
 
 function renderNoAccess(user, discordId) {
-  renderCard(
-    "Серверов нет",
-    `
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      <p>Для этого Discord ID пока нет записей в guild_admins.</p>
-    `
-  );
+  var html = "";
+  html += "<p>" + esc(getName(user)) + "</p>";
+  html += "<p>Discord ID: " + esc(discordId || "не найден") + "</p>";
+  html += '<div class="actions">';
+  html += '<button id="logoutBtn" type="button">Logout</button>';
+  html += "</div>";
+  html += "<p>Для этого Discord ID пока нет записей в guild_admins.</p>";
 
-  bindAction("logoutBtn", async () => {
+  card("Серверов нет", html);
+
+  bind("logoutBtn", async function () {
     try {
       await logout();
     } catch (error) {
-      renderError(`Ошибка выхода: ${error.message || String(error)}`);
+      showError("Ошибка выхода: " + (error && error.message ? error.message : String(error)));
     }
   });
 }
 
-function renderPartialAccess(user, discordId, missingGuildIds) {
-  renderCard(
-    "Серверы пока не готовы",
-    `
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      <p>Для вашего Discord ID найдены записи в guild_admins, но данные серверов ещё не появились в bot_guilds.</p>
-      <ul>${missingGuildIds.map((id) => `<li>${escapeHtml(id)}</li>`).join("")}</ul>
-    `
-  );
+function renderGuilds(user, discordId, guilds) {
+  var html = "";
+  var i = 0;
 
-  bindAction("logoutBtn", async () => {
+  html += "<p>" + esc(getName(user)) + "</p>";
+  html += "<p>Discord ID: " + esc(discordId || "не найден") + "</p>";
+  html += '<div class="actions">';
+  html += '<button id="logoutBtn" type="button">Logout</button>';
+  html += "</div>";
+  html += '<div class="servers">';
+
+  for (i = 0; i < guilds.length; i += 1) {
+    var guild = guilds[i];
+    var guildName = esc(guild.name || "Server");
+    var guildId = esc(guild.guild_id || "");
+    var guildRole = esc(guild.role || "admin");
+    var iconUrl = getIconUrl(guild.guild_id, guild.icon);
+    var manageUrl = "./manage.html?guild=" + encodeURIComponent(guild.guild_id || "");
+
+    html += '<div class="server-card">';
+
+    if (iconUrl) {
+      html += '<img class="server-icon" src="' + iconUrl + '" alt="' + guildName + ' icon">';
+    } else {
+      html += '<div class="server-icon fallback">LF</div>';
+    }
+
+    html += '<div class="server-info">';
+    html += "<h3>" + guildName + "</h3>";
+    html += "<p>Guild ID: " + guildId + "</p>";
+    html += "<p>Role: " + guildRole + "</p>";
+    html += "</div>";
+    html += '<a class="manage-link" href="' + manageUrl + '">Manage</a>';
+    html += "</div>";
+  }
+
+  html += "</div>";
+
+  card("Ваши серверы", html);
+
+  bind("logoutBtn", async function () {
     try {
       await logout();
     } catch (error) {
-      renderError(`Ошибка выхода: ${error.message || String(error)}`);
+      showError("Ошибка выхода: " + (error && error.message ? error.message : String(error)));
     }
   });
 }
 
-function renderGuilds(user, discordId, guilds, missingGuildIds) {
-  const cardsHtml = guilds
-    .map((guild) => {
-      const guildName = escapeHtml(guild.name || "Server");
-      const guildId = escapeHtml(guild.guild_id);
-      const guildRole = escapeHtml(guild.role || "admin");
-      const manageUrl = `./manage.html?guild=${encodeURIComponent(guild.guild_id)}`;
-      const iconUrl = getGuildIconUrl(guild.guild_id, guild.icon);
-
-      return `
-        <article class="server-card">
-          ${
-            iconUrl
-              ? `<img class="server-icon" src="${iconUrl}" alt="${guildName} icon">`
-              : `<div class="server-icon fallback">LF</div>`
-          }
-          <div class="server-info">
-            <h3>${guildName}</h3>
-            <p>Guild ID: ${guildId}</p>
-            <p>Role: ${guildRole}</p>
-          </div>
-          <a class="manage-link" href="${manageUrl}">Manage</a>
-        </article>
-      `;
-    })
-    .join("");
-
-  renderCard(
-    "Ваши серверы",
-    `
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      ${
-        missingGuildIds.length > 0
-          ? `<p>Не найдены в bot_guilds: ${missingGuildIds.map((id) => escapeHtml(id)).join(", ")}</p>`
-          : ""
-      }
-      <div class="servers">${cardsHtml}</div>
-    `
-  );
-
-  bindAction("logoutBtn", async () => {
-    try {
-      await logout();
-    } catch (error) {
-      renderError(`Ошибка выхода: ${error.message || String(error)}`);
-    }
-  });
-}
-
-async function loadManageableGuilds(discordId) {
-  const { data: adminRows, error: adminError } = await supabase
+async function loadGuilds(discordId) {
+  var adminResult = await supabase
     .from("guild_admins")
     .select("guild_id, role")
     .eq("user_id", discordId);
 
-  if (adminError) {
-    throw new Error(`guild_admins: ${adminError.message}`);
+  if (adminResult.error) {
+    throw new Error("guild_admins: " + adminResult.error.message);
   }
 
-  const uniqueAdminRows = [];
-  const seenGuildIds = new Set();
+  var adminRows = adminResult.data || [];
+  var guildIds = [];
+  var roles = {};
+  var i = 0;
 
-  for (const row of adminRows || []) {
-    const guildId = row?.guild_id;
-    if (!guildId || seenGuildIds.has(guildId)) continue;
-
-    seenGuildIds.add(guildId);
-    uniqueAdminRows.push(row);
+  for (i = 0; i < adminRows.length; i += 1) {
+    var row = adminRows[i];
+    if (row && row.guild_id) {
+      guildIds.push(row.guild_id);
+      roles[row.guild_id] = row.role || "admin";
+    }
   }
-
-  const guildIds = uniqueAdminRows.map((row) => row.guild_id);
 
   if (guildIds.length === 0) {
-    return { guilds: [], missingGuildIds: [] };
+    return [];
   }
 
-  const { data: guildRows, error: guildError } = await supabase
+  var guildResult = await supabase
     .from("bot_guilds")
     .select("guild_id, name, icon, updated_at")
     .in("guild_id", guildIds)
     .order("updated_at", { ascending: false });
 
-  if (guildError) {
-    throw new Error(`bot_guilds: ${guildError.message}`);
+  if (guildResult.error) {
+    throw new Error("bot_guilds: " + guildResult.error.message);
   }
 
-  const roleMap = new Map(uniqueAdminRows.map((row) => [row.guild_id, row.role || "admin"]));
-  const foundGuildIds = new Set((guildRows || []).map((guild) => guild.guild_id));
-  const missingGuildIds = guildIds.filter((guildId) => !foundGuildIds.has(guildId));
-  const guilds = (guildRows || []).map((guild) => ({
-    ...guild,
-    role: roleMap.get(guild.guild_id) || "admin",
-  }));
+  var guildRows = guildResult.data || [];
+  var out = [];
 
-  return { guilds, missingGuildIds };
+  for (i = 0; i < guildRows.length; i += 1) {
+    var guild = guildRows[i];
+    out.push({
+      guild_id: guild.guild_id,
+      name: guild.name,
+      icon: guild.icon,
+      updated_at: guild.updated_at,
+      role: roles[guild.guild_id] || "admin"
+    });
+  }
+
+  return out;
 }
 
 async function init() {
-  renderLoading("Проверка авторизации...");
+  card("", "<p>Проверка авторизации...</p>");
 
-  const { data, error } = await supabase.auth.getSession();
-  if (error) {
-    throw new Error(`auth: ${error.message}`);
+  var sessionResult = await supabase.auth.getSession();
+
+  if (sessionResult.error) {
+    throw new Error("auth: " + sessionResult.error.message);
   }
 
-  const session = data?.session;
+  var session = sessionResult.data ? sessionResult.data.session : null;
+
   if (!session) {
     renderLoggedOut();
     return;
   }
 
-  const user = session.user;
-  const discordId = getDiscordId(user);
+  var user = session.user;
+  var discordId = getDiscordId(user);
 
   if (!discordId) {
-    renderError("Discord ID не найден в сессии.");
+    showError("Discord ID не найден в сессии.");
     return;
   }
 
-  renderLoading("Загрузка серверов...");
+  card("", "<p>Загрузка серверов...</p>");
 
-  const { guilds, missingGuildIds } = await loadManageableGuilds(discordId);
+  var guilds = await loadGuilds(discordId);
 
-  if (guilds.length === 0 && missingGuildIds.length > 0) {
-    renderPartialAccess(user, discordId, missingGuildIds);
-    return;
-  }
-
-  if (guilds.length === 0) {
+  if (!guilds.length) {
     renderNoAccess(user, discordId);
     return;
   }
 
-  renderGuilds(user, discordId, guilds, missingGuildIds);
+  renderGuilds(user, discordId, guilds);
 }
 
-init().catch((error) => {
-  console.error("Init error:", error);
-  renderError(`Ошибка загрузки панели: ${error.message || String(error)}`);
+init().catch(function (error) {
+  console.error("app.js init error:", error);
+  showError(error && error.message ? error.message : String(error));
 });
