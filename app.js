@@ -18,21 +18,38 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderMessage(html) {
-  if (!view) {
-    throw new Error('Element with id="view" was not found');
-  }
+function render(html) {
+  if (!view) return;
   view.innerHTML = html;
 }
 
-function renderFatalError(message) {
-  renderMessage(`
-    <section class="card">
+function renderError(message) {
+  render(`
+    <div class="card">
       <h2>Ошибка</h2>
       <p>${escapeHtml(message)}</p>
-    </section>
+    </div>
   `);
 }
+
+function renderLoading(message = "Загрузка...") {
+  render(`
+    <div class="card">
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `);
+}
+
+if (!view) {
+  throw new Error('Element with id="view" was not found');
+}
+
+if (!window.supabase || typeof window.supabase.createClient !== "function") {
+  renderError("Supabase library is not loaded.");
+  throw new Error("Supabase library is not loaded.");
+}
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 window.addEventListener("error", (event) => {
   console.error("Window error:", event.error || event.message || event);
@@ -41,13 +58,6 @@ window.addEventListener("error", (event) => {
 window.addEventListener("unhandledrejection", (event) => {
   console.error("Unhandled promise rejection:", event.reason);
 });
-
-if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  renderFatalError("Supabase library is not loaded.");
-  throw new Error("Supabase library is not loaded.");
-}
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function getDiscordId(user) {
   const identities = Array.isArray(user?.identities) ? user.identities : [];
@@ -71,13 +81,13 @@ function getDisplayName(user) {
   );
 }
 
+function getInviteUrl() {
+  return `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_BOT_CLIENT_ID)}&scope=bot%20applications.commands&permissions=8`;
+}
+
 function getGuildIconUrl(guildId, icon) {
   if (!guildId || !icon) return "";
   return `https://cdn.discordapp.com/icons/${encodeURIComponent(guildId)}/${encodeURIComponent(icon)}.png?size=128`;
-}
-
-function getInviteUrl() {
-  return `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_BOT_CLIENT_ID)}&scope=bot%20applications.commands&permissions=8`;
 }
 
 async function login() {
@@ -85,8 +95,8 @@ async function login() {
     provider: "discord",
     options: {
       scopes: "identify guilds",
-      redirectTo: REDIRECT_TO,
-    },
+      redirectTo: REDIRECT_TO
+    }
   });
 
   if (error) {
@@ -102,6 +112,110 @@ async function logout() {
   }
 
   window.location.href = "./";
+}
+
+function bindAction(id, handler) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener("click", handler);
+}
+
+function renderLoggedOut() {
+  render(`
+    <div class="card">
+      <h2>Добро пожаловать</h2>
+      <p>Войди через Discord, чтобы открыть список доступных серверов.</p>
+      <button id="loginBtn" type="button">Login with Discord</button>
+    </div>
+  `);
+
+  bindAction("loginBtn", async () => {
+    try {
+      await login();
+    } catch (error) {
+      renderError(`Ошибка входа: ${error.message || String(error)}`);
+    }
+  });
+}
+
+function renderNoAccess(user, discordId) {
+  render(`
+    <div class="card">
+      <h2>Серверов нет</h2>
+      <p>${escapeHtml(getDisplayName(user))}</p>
+      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+      <div class="actions">
+        <button id="logoutBtn" type="button">Logout</button>
+        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
+      </div>
+      <p>Для этого Discord ID пока нет записей в guild_admins.</p>
+    </div>
+  `);
+
+  bindAction("logoutBtn", async () => {
+    try {
+      await logout();
+    } catch (error) {
+      renderError(`Ошибка выхода: ${error.message || String(error)}`);
+    }
+  });
+}
+
+function renderGuilds(user, discordId, guilds, missingGuildIds) {
+  const guildsHtml = guilds.map((guild) => {
+    const guildName = escapeHtml(guild.name || "Server");
+    const guildId = escapeHtml(guild.guild_id);
+    const guildRole = escapeHtml(guild.role || "admin");
+    const iconUrl = getGuildIconUrl(guild.guild_id, guild.icon);
+    const manageUrl = `./manage.html?guild=${encodeURIComponent(guild.guild_id)}`;
+
+    return `
+      <div class="server-card">
+        ${
+          iconUrl
+            ? `<img class="server-icon" src="${iconUrl}" alt="${guildName} icon">`
+            : `<div class="server-icon fallback">LF</div>`
+        }
+        <div class="server-info">
+          <h3>${guildName}</h3>
+          <p>Guild ID: ${guildId}</p>
+          <p>Role: ${guildRole}</p>
+        </div>
+        <a class="manage-link" href="${manageUrl}">Manage</a>
+      </div>
+    `;
+  }).join("");
+
+  render(`
+    <div class="card">
+      <h2>Ваши серверы</h2>
+      <p>${escapeHtml(getDisplayName(user))}</p>
+      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+
+      <div class="actions">
+        <button id="logoutBtn" type="button">Logout</button>
+        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
+      </div>
+
+      ${
+        missingGuildIds.length > 0
+          ? `<p>Не найдены в bot_guilds: ${escapeHtml(missingGuildIds.join(", "))}</p>`
+          : ""
+      }
+
+      <div id="servers" class="servers">
+        ${guildsHtml}
+      </div>
+    </div>
+  `);
+
+  bindAction("logoutBtn", async () => {
+    try {
+      await logout();
+    } catch (error) {
+      renderError(`Ошибка выхода: ${error.message || String(error)}`);
+    }
+  });
 }
 
 async function loadManageableGuilds(discordId) {
@@ -150,144 +264,15 @@ async function loadManageableGuilds(discordId) {
 
   const guilds = (guildRows || []).map((guild) => ({
     ...guild,
-    role: roleMap.get(guild.guild_id) || "admin",
+    role: roleMap.get(guild.guild_id) || "admin"
   }));
 
   return { guilds, missingGuildIds };
 }
 
-function bindAction(id, handler) {
-  const element = document.getElementById(id);
-  if (!element) return;
-  element.addEventListener("click", handler);
-}
-
-function renderLoggedOut() {
-  renderMessage(`
-    <section class="card">
-      <h2>Добро пожаловать</h2>
-      <p>Войди через Discord, чтобы открыть список доступных серверов.</p>
-      <button id="loginBtn" type="button">Login with Discord</button>
-    </section>
-  `);
-
-  bindAction("loginBtn", async () => {
-    try {
-      await login();
-    } catch (error) {
-      renderFatalError(`Ошибка входа: ${error.message || String(error)}`);
-    }
-  });
-}
-
-function renderNoAccess(user, discordId) {
-  renderMessage(`
-    <section class="card">
-      <h2>Серверов нет</h2>
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      <p>Для этого Discord ID пока нет записей в guild_admins.</p>
-    </section>
-  `);
-
-  bindAction("logoutBtn", async () => {
-    try {
-      await logout();
-    } catch (error) {
-      renderFatalError(`Ошибка выхода: ${error.message || String(error)}`);
-    }
-  });
-}
-
-function renderPartialAccess(user, discordId, missingGuildIds) {
-  renderMessage(`
-    <section class="card">
-      <h2>Серверы пока не готовы</h2>
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      <p>Для вашего Discord ID найдены записи в guild_admins, но данные серверов ещё не появились в bot_guilds.</p>
-      <ul>
-        ${missingGuildIds.map((id) => `<li>${escapeHtml(id)}</li>`).join("")}
-      </ul>
-    </section>
-  `);
-
-  bindAction("logoutBtn", async () => {
-    try {
-      await logout();
-    } catch (error) {
-      renderFatalError(`Ошибка выхода: ${error.message || String(error)}`);
-    }
-  });
-}
-
-function renderGuilds(user, discordId, guilds, missingGuildIds = []) {
-  renderMessage(`
-    <section class="card">
-      <h2>Ваши серверы</h2>
-      <p>${escapeHtml(getDisplayName(user))}</p>
-      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-      <div class="actions">
-        <button id="logoutBtn" type="button">Logout</button>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-      </div>
-      ${
-        missingGuildIds.length > 0
-          ? `<p>Не найдены в bot_guilds: ${missingGuildIds.map((id) => escapeHtml(id)).join(", ")}</p>`
-          : ""
-      }
-      <div id="servers" class="servers"></div>
-    </section>
-  `);
-
-  bindAction("logoutBtn", async () => {
-    try {
-      await logout();
-    } catch (error) {
-      renderFatalError(`Ошибка выхода: ${error.message || String(error)}`);
-    }
-  });
-
-  const serversBox = document.getElementById("servers");
-  if (!serversBox) {
-    throw new Error('Element with id="servers" was not created');
-  }
-
-  serversBox.innerHTML = guilds
-    .map((guild) => {
-      const guildName = escapeHtml(guild.name || "Server");
-      const guildId = escapeHtml(guild.guild_id);
-      const guildRole = escapeHtml(guild.role || "admin");
-      const manageUrl = `./manage.html?guild=${encodeURIComponent(guild.guild_id)}`;
-      const iconUrl = getGuildIconUrl(guild.guild_id, guild.icon);
-      const iconHtml = iconUrl
-        ? `<img class="server-icon" src="${iconUrl}" alt="${guildName} icon">`
-        : `<div class="server-icon fallback">LF</div>`;
-
-      return `
-        <article class="server-card">
-          ${iconHtml}
-          <div class="server-info">
-            <h3>${guildName}</h3>
-            <p>Guild ID: ${guildId}</p>
-            <p>Role: ${guildRole}</p>
-          </div>
-          <a class="manage-link" href="${manageUrl}">Manage</a>
-        </article>
-      `;
-    })
-    .join("");
-}
-
 async function init() {
+  renderLoading("Проверка авторизации...");
+
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
@@ -295,6 +280,7 @@ async function init() {
   }
 
   const session = data?.session;
+
   if (!session) {
     renderLoggedOut();
     return;
@@ -304,17 +290,13 @@ async function init() {
   const discordId = getDiscordId(user);
 
   if (!discordId) {
-    renderFatalError("Discord ID не найден в сессии.");
-    console.error("Session user without Discord ID:", user);
+    renderError("Discord ID не найден в сессии.");
     return;
   }
+
+  renderLoading("Загрузка серверов...");
 
   const { guilds, missingGuildIds } = await loadManageableGuilds(discordId);
-
-  if (guilds.length === 0 && missingGuildIds.length > 0) {
-    renderPartialAccess(user, discordId, missingGuildIds);
-    return;
-  }
 
   if (guilds.length === 0) {
     renderNoAccess(user, discordId);
@@ -326,5 +308,5 @@ async function init() {
 
 init().catch((error) => {
   console.error("Init error:", error);
-  renderFatalError(`Ошибка загрузки панели: ${error.message || String(error)}`);
+  renderError(`Ошибка загрузки панели: ${error.message || String(error)}`);
 });
