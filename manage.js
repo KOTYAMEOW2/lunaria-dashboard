@@ -5,12 +5,12 @@ const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
 const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
 
 if (!manageView) {
-  throw new Error('Element with id="manageView" not found');
+  throw new Error('Element #manageView not found');
 }
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  manageView.innerHTML = `<div class="card error">Supabase client library is not loaded.</div>`;
-  throw new Error("Supabase client library is not loaded");
+  manageView.innerHTML = `<div class="card error">Supabase library is not loaded.</div>`;
+  throw new Error("Supabase library is not loaded");
 }
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
