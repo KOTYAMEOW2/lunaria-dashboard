@@ -4,15 +4,24 @@ const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
 const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
 
+if (!manageView) {
+  throw new Error('Element with id="manageView" not found');
+}
+
+if (!window.supabase || typeof window.supabase.createClient !== "function") {
+  manageView.innerHTML = `<div class="card error">Supabase client library is not loaded.</div>`;
+  throw new Error("Supabase client library is not loaded");
+}
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function getDiscordId(user) {
@@ -26,7 +35,7 @@ function getDiscordId(user) {
 }
 
 function getGuildIdFromUrl() {
-  const url = new URL(location.href);
+  const url = new URL(window.location.href);
   return url.searchParams.get("guild");
 }
 
@@ -36,13 +45,16 @@ function getGuildIconUrl(guildId, icon) {
 }
 
 function getInviteUrl() {
-  const clientId = DISCORD_BOT_CLIENT_ID;
-  return `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=8`;
+  return `https://discord.com/oauth2/authorize?client_id=${DISCORD_BOT_CLIENT_ID}&scope=bot%20applications.commands&permissions=8`;
 }
 
 async function logout() {
-  await supabase.auth.signOut();
-  location.href = "./";
+  try {
+    await supabase.auth.signOut();
+    location.href = "./";
+  } catch (error) {
+    manageView.innerHTML = `<div class="card error">Logout error: ${escapeHtml(error.message || String(error))}</div>`;
+  }
 }
 
 async function initManage() {
@@ -62,8 +74,7 @@ async function initManage() {
     const { data, error } = await supabase.auth.getSession();
 
     if (error) {
-      manageView.innerHTML = `<div class="card error">Ошибка сессии: ${escapeHtml(error.message)}</div>`;
-      return;
+      throw new Error(error.message);
     }
 
     const session = data?.session;
@@ -76,7 +87,7 @@ async function initManage() {
     const discordId = getDiscordId(session.user);
 
     if (!discordId) {
-      manageView.innerHTML = `<div class="card error">Discord ID не найден.</div>`;
+      manageView.innerHTML = `<div class="card error">Discord ID не найден в сессии.</div>`;
       return;
     }
 
@@ -88,8 +99,7 @@ async function initManage() {
       .maybeSingle();
 
     if (adminError) {
-      manageView.innerHTML = `<div class="card error">Ошибка доступа: ${escapeHtml(adminError.message)}</div>`;
-      return;
+      throw new Error(`guild_admins: ${adminError.message}`);
     }
 
     if (!adminRow) {
@@ -109,8 +119,7 @@ async function initManage() {
       .maybeSingle();
 
     if (guildError) {
-      manageView.innerHTML = `<div class="card error">Ошибка сервера: ${escapeHtml(guildError.message)}</div>`;
-      return;
+      throw new Error(`bot_guilds: ${guildError.message}`);
     }
 
     if (!guild) {
@@ -123,18 +132,18 @@ async function initManage() {
       return;
     }
 
+    const iconHtml = guild.icon
+      ? `<img class="server-icon large" src="${getGuildIconUrl(guild.guild_id, guild.icon)}" alt="${escapeHtml(guild.name || "Server")}">`
+      : `<div class="server-icon large">LF</div>`;
+
     manageView.innerHTML = `
       <div class="actions">
         <a class="button secondary" href="./">← Назад к серверам</a>
-        <button class="secondary" onclick="logout()">Logout</button>
+        <button type="button" class="secondary" onclick="logout()">Logout</button>
       </div>
 
       <div class="server-head">
-        ${
-          guild.icon
-            ? `<img class="server-icon large" src="${getGuildIconUrl(guild.guild_id, guild.icon)}" alt="${escapeHtml(guild.name)}">`
-            : `<div class="server-icon large">LF</div>`
-        }
+        ${iconHtml}
         <div>
           <h1>${escapeHtml(guild.name || "Server")}</h1>
           <p class="small">Guild ID: ${escapeHtml(guild.guild_id)}</p>
@@ -169,8 +178,15 @@ async function initManage() {
         </a>
       </div>
     `;
-  } catch (e) {
-    manageView.innerHTML = `<div class="card error">Ошибка загрузки: ${escapeHtml(e.message || String(e))}</div>`;
+  } catch (error) {
+    manageView.innerHTML = `
+      <div class="card error">
+        Ошибка загрузки: ${escapeHtml(error.message || String(error))}
+      </div>
+      <div class="actions">
+        <a class="button secondary" href="./">Назад</a>
+      </div>
+    `;
   }
 }
 
