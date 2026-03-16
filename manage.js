@@ -2,6 +2,8 @@ const manageView = document.getElementById("manageView");
 
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function escapeHtml(value) {
@@ -33,25 +35,38 @@ function getGuildIconUrl(guildId, icon) {
   return `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=128`;
 }
 
+function getInviteUrl() {
+  const clientId = DISCORD_BOT_CLIENT_ID;
+  return `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=8`;
+}
+
+async function logout() {
+  await supabase.auth.signOut();
+  location.href = "./";
+}
+
 async function initManage() {
   try {
     const guildId = getGuildIdFromUrl();
 
     if (!guildId) {
       manageView.innerHTML = `
-        <h2>Ошибка</h2>
-        <p class="error">guild ID не передан</p>
-        <a class="btn secondary" href="./">Назад</a>
+        <div class="card error">Guild ID не передан.</div>
+        <div class="actions">
+          <a class="button secondary" href="./">Назад</a>
+        </div>
       `;
       return;
     }
 
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getSession();
 
-    if (sessionError) {
-      manageView.innerHTML = `<p class="error">Ошибка сессии: ${escapeHtml(sessionError.message)}</p>`;
+    if (error) {
+      manageView.innerHTML = `<div class="card error">Ошибка сессии: ${escapeHtml(error.message)}</div>`;
       return;
     }
+
+    const session = data?.session;
 
     if (!session) {
       location.href = "./";
@@ -61,7 +76,7 @@ async function initManage() {
     const discordId = getDiscordId(session.user);
 
     if (!discordId) {
-      manageView.innerHTML = `<p class="error">Discord ID не найден</p>`;
+      manageView.innerHTML = `<div class="card error">Discord ID не найден.</div>`;
       return;
     }
 
@@ -73,15 +88,16 @@ async function initManage() {
       .maybeSingle();
 
     if (adminError) {
-      manageView.innerHTML = `<p class="error">Ошибка доступа: ${escapeHtml(adminError.message)}</p>`;
+      manageView.innerHTML = `<div class="card error">Ошибка доступа: ${escapeHtml(adminError.message)}</div>`;
       return;
     }
 
     if (!adminRow) {
       manageView.innerHTML = `
-        <h2>Доступ запрещён</h2>
-        <p>У тебя нет доступа к этому серверу.</p>
-        <a class="btn secondary" href="./">Назад</a>
+        <div class="card error">У тебя нет доступа к этому серверу.</div>
+        <div class="actions">
+          <a class="button secondary" href="./">Назад</a>
+        </div>
       `;
       return;
     }
@@ -93,65 +109,71 @@ async function initManage() {
       .maybeSingle();
 
     if (guildError) {
-      manageView.innerHTML = `<p class="error">Ошибка сервера: ${escapeHtml(guildError.message)}</p>`;
+      manageView.innerHTML = `<div class="card error">Ошибка сервера: ${escapeHtml(guildError.message)}</div>`;
       return;
     }
 
     if (!guild) {
       manageView.innerHTML = `
-        <h2>Сервер не найден</h2>
-        <a class="btn secondary" href="./">Назад</a>
+        <div class="card error">Сервер не найден.</div>
+        <div class="actions">
+          <a class="button secondary" href="./">Назад</a>
+        </div>
       `;
       return;
     }
 
     manageView.innerHTML = `
-      <a class="btn secondary" href="./">← Назад к серверам</a>
+      <div class="actions">
+        <a class="button secondary" href="./">← Назад к серверам</a>
+        <button class="secondary" onclick="logout()">Logout</button>
+      </div>
 
-      <div style="height:18px"></div>
-
-      <div style="display:flex; gap:14px; align-items:center;">
+      <div class="server-head">
         ${
           guild.icon
-            ? `<img src="${getGuildIconUrl(guild.guild_id, guild.icon)}" alt="${escapeHtml(guild.name)}" style="width:64px; height:64px; border-radius:16px; object-fit:cover;">`
-            : `<div style="width:64px; height:64px; border-radius:16px; background:#33285e; display:flex; align-items:center; justify-content:center; font-weight:bold;">LF</div>`
+            ? `<img class="server-icon large" src="${getGuildIconUrl(guild.guild_id, guild.icon)}" alt="${escapeHtml(guild.name)}">`
+            : `<div class="server-icon large">LF</div>`
         }
-
         <div>
-          <h1 style="margin:0 0 8px;">${escapeHtml(guild.name || "Server")}</h1>
+          <h1>${escapeHtml(guild.name || "Server")}</h1>
           <p class="small">Guild ID: ${escapeHtml(guild.guild_id)}</p>
           <p class="small">Role: ${escapeHtml(adminRow.role || "admin")}</p>
         </div>
       </div>
 
-      <div style="height:22px"></div>
-
       <div class="grid-2">
-        <div class="card">
+        <a class="card" href="./rules.html?guild=${encodeURIComponent(guild.guild_id)}">
           <h3>Rules</h3>
-          <p class="small">Управление правилами сервера</p>
-        </div>
+          <p class="small">Просмотр правил сервера</p>
+        </a>
 
-        <div class="card">
+        <a class="card" href="./punishments.html?guild=${encodeURIComponent(guild.guild_id)}">
           <h3>Punishments</h3>
           <p class="small">Система наказаний</p>
-        </div>
+        </a>
 
-        <div class="card">
+        <a class="card" href="./logs.html?guild=${encodeURIComponent(guild.guild_id)}">
           <h3>Logs</h3>
-          <p class="small">Категории и каналы логов</p>
-        </div>
+          <p class="small">Категории логов</p>
+        </a>
 
-        <div class="card">
+        <a class="card" href="./settings.html?guild=${encodeURIComponent(guild.guild_id)}">
           <h3>Settings</h3>
-          <p class="small">Основные настройки бота</p>
-        </div>
+          <p class="small">Настройки сервера</p>
+        </a>
+
+        <a class="card" href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">
+          <h3>Invite</h3>
+          <p class="small">Добавить бота на сервер</p>
+        </a>
       </div>
     `;
   } catch (e) {
-    manageView.innerHTML = `<p class="error">Ошибка JS: ${escapeHtml(e.message || String(e))}</p>`;
-    console.error(e);
+    manageView.innerHTML = `<div class="card error">Ошибка загрузки: ${escapeHtml(e.message || String(e))}</div>`;
   }
 }
+
+window.logout = logout;
 
 initManage();
