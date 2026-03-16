@@ -1,7 +1,7 @@
 var view = document.getElementById("view");
 var SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 var SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-var REDIRECT_TO = window.location.origin + "/";
+var REDIRECT_TO = window.location.origin + "/auth/callback/";
 
 function show(html) {
   if (!view) {
