@@ -6,12 +6,12 @@ const DASHBOARD_URL = "https://lunaria-dashboard.pages.dev";
 const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
 
 if (!view) {
-  throw new Error('Element with id="view" not found');
+  throw new Error('Element #view not found');
 }
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  view.innerHTML = `<div class="card error">Supabase client library is not loaded.</div>`;
-  throw new Error("Supabase client library is not loaded");
+  view.innerHTML = `<div class="card error">Supabase library is not loaded.</div>`;
+  throw new Error("Supabase library is not loaded");
 }
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
