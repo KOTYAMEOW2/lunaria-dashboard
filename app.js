@@ -1,7 +1,7 @@
 var view = document.getElementById("view");
 var SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 var SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-var REDIRECT_TO = window.location.origin + "/auth/callback/";
+var REDIRECT_TO = window.location.origin + "/";
 
 function show(html) {
   if (!view) {
@@ -15,7 +15,9 @@ function esc(value) {
   return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function errorText(err) {
@@ -24,12 +26,23 @@ function errorText(err) {
   return String(err);
 }
 
+function card(title, body) {
+  var html = "";
+  html += '<div class="card">';
+  if (title) {
+    html += "<h2>" + esc(title) + "</h2>";
+  }
+  html += body;
+  html += "</div>";
+  show(html);
+}
+
 if (!view) {
   throw new Error("Element #view not found");
 }
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  show('<div class="card"><h2>Ошибка</h2><p>Supabase library is not loaded.</p></div>');
+  card("Ошибка", "<p>Supabase library is not loaded.</p>");
   throw new Error("Supabase library is not loaded");
 }
 
@@ -37,6 +50,15 @@ var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function getDiscordId(user) {
   if (!user) return null;
+
+  if (Array.isArray(user.identities)) {
+    for (var i = 0; i < user.identities.length; i += 1) {
+      var identity = user.identities[i];
+      if (identity && identity.provider === "discord" && identity.id) {
+        return identity.id;
+      }
+    }
+  }
 
   if (user.user_metadata && user.user_metadata.provider_id) {
     return user.user_metadata.provider_id;
@@ -46,13 +68,8 @@ function getDiscordId(user) {
     return user.user_metadata.sub;
   }
 
-  if (Array.isArray(user.identities)) {
-    for (var i = 0; i < user.identities.length; i += 1) {
-      var identity = user.identities[i];
-      if (identity && identity.provider === "discord" && identity.id) {
-        return identity.id;
-      }
-    }
+  if (user.app_metadata && user.app_metadata.provider_id) {
+    return user.app_metadata.provider_id;
   }
 
   return null;
@@ -102,52 +119,44 @@ async function logout() {
 
 function renderLoggedOut() {
   var html = "";
-  html += '<div class="card">';
-  html += "<h2>Добро пожаловать</h2>";
   html += "<p>Войди через Discord, чтобы открыть список доступных серверов.</p>";
   html += '<div class="actions">';
   html += '<button id="loginBtn" type="button">Login with Discord</button>';
   html += "</div>";
-  html += "</div>";
 
-  show(html);
+  card("Добро пожаловать", html);
 
   bind("loginBtn", async function () {
     try {
       await login();
     } catch (err) {
-      show('<div class="card"><h2>Ошибка входа</h2><p>' + esc(errorText(err)) + "</p></div>");
+      card("Ошибка входа", "<p>" + esc(errorText(err)) + "</p>");
     }
   });
 }
 
 function renderNoAccess(user, discordId) {
   var html = "";
-  html += '<div class="card">';
-  html += "<h2>Серверов нет</h2>";
   html += "<p>" + esc(getUserName(user)) + "</p>";
   html += "<p>Discord ID: " + esc(discordId || "не найден") + "</p>";
   html += "<p>Для этого Discord ID нет записей в guild_admins.</p>";
   html += '<div class="actions">';
   html += '<button id="logoutBtn" type="button">Logout</button>';
   html += "</div>";
-  html += "</div>";
 
-  show(html);
+  card("Серверов нет", html);
 
   bind("logoutBtn", async function () {
     try {
       await logout();
     } catch (err) {
-      show('<div class="card"><h2>Ошибка выхода</h2><p>' + esc(errorText(err)) + "</p></div>");
+      card("Ошибка выхода", "<p>" + esc(errorText(err)) + "</p>");
     }
   });
 }
 
 function renderGuilds(user, discordId, guilds) {
   var html = "";
-  html += '<div class="card">';
-  html += "<h2>Ваши серверы</h2>";
   html += "<p>" + esc(getUserName(user)) + "</p>";
   html += "<p>Discord ID: " + esc(discordId || "не найден") + "</p>";
   html += '<div class="actions">';
@@ -181,15 +190,14 @@ function renderGuilds(user, discordId, guilds) {
   }
 
   html += "</div>";
-  html += "</div>";
 
-  show(html);
+  card("Ваши серверы", html);
 
   bind("logoutBtn", async function () {
     try {
       await logout();
     } catch (err) {
-      show('<div class="card"><h2>Ошибка выхода</h2><p>' + esc(errorText(err)) + "</p></div>");
+      card("Ошибка выхода", "<p>" + esc(errorText(err)) + "</p>");
     }
   });
 }
@@ -251,7 +259,11 @@ async function loadGuilds(discordId) {
 }
 
 async function init() {
-  show('<div class="card"><p>Проверка авторизации...</p></div>');
+  card("", "<p>Проверка авторизации...</p>");
+
+  if (window.location.hash && window.location.hash.indexOf("access_token=") !== -1) {
+    card("", "<p>Завершаем вход...</p>");
+  }
 
   var sessionRes = await supabase.auth.getSession();
 
@@ -260,6 +272,10 @@ async function init() {
   }
 
   var session = sessionRes.data && sessionRes.data.session ? sessionRes.data.session : null;
+
+  if (window.location.hash && window.location.hash.indexOf("access_token=") !== -1) {
+    history.replaceState({}, document.title, window.location.pathname);
+  }
 
   if (!session) {
     renderLoggedOut();
@@ -270,11 +286,11 @@ async function init() {
   var discordId = getDiscordId(user);
 
   if (!discordId) {
-    show('<div class="card"><h2>Ошибка</h2><p>Discord ID не найден в сессии.</p></div>');
+    card("Ошибка", "<p>Discord ID не найден в сессии.</p>");
     return;
   }
 
-  show('<div class="card"><p>Загрузка серверов...</p></div>');
+  card("", "<p>Загрузка серверов...</p>");
 
   var guilds = await loadGuilds(discordId);
 
@@ -288,5 +304,5 @@ async function init() {
 
 init().catch(function (err) {
   console.error("app.js init error:", err);
-  show('<div class="card"><h2>Ошибка</h2><p>' + esc(errorText(err)) + "</p></div>");
+  card("Ошибка", "<p>" + esc(errorText(err)) + "</p>");
 });
