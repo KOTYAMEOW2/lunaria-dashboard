@@ -2,8 +2,8 @@ const view = document.getElementById("view");
 
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-const DASHBOARD_URL = "https://lunaria-dashboard.pages.dev";
 const DISCORD_BOT_CLIENT_ID = "1473237338460127382";
+const REDIRECT_TO = `${window.location.origin}/auth/callback/`;
 
 function safeString(value) {
   return String(value ?? "");
@@ -15,37 +15,32 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/'/g, "&#39;");
 }
 
 function renderMessage(html) {
-  if (!view) return;
+  if (!view) {
+    throw new Error('Element with id="view" was not found');
+  }
   view.innerHTML = html;
 }
 
 function renderFatalError(message) {
   renderMessage(`
-    <div class="card error">
-      ${escapeHtml(message)}
-    </div>
+    <section class="card">
+      <h2>Ошибка</h2>
+      <p>${escapeHtml(message)}</p>
+    </section>
   `);
 }
 
 window.addEventListener("error", (event) => {
   console.error("Window error:", event.error || event.message || event);
-  renderFatalError(`JS error: ${event.message || "Unknown error"}`);
 });
 
 window.addEventListener("unhandledrejection", (event) => {
   console.error("Unhandled promise rejection:", event.reason);
-  const reason = event.reason;
-  const message = reason?.message || safeString(reason) || "Unknown promise error";
-  renderFatalError(`Promise error: ${message}`);
 });
-
-if (!view) {
-  throw new Error('Element with id="view" was not found');
-}
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
   renderFatalError("Supabase library is not loaded.");
@@ -55,9 +50,8 @@ if (!window.supabase || typeof window.supabase.createClient !== "function") {
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function getDiscordId(user) {
-  const discordIdentity = user?.identities?.find(
-    (identity) => identity?.provider === "discord"
-  );
+  const identities = Array.isArray(user?.identities) ? user.identities : [];
+  const discordIdentity = identities.find((identity) => identity?.provider === "discord");
 
   return (
     discordIdentity?.id ||
@@ -91,8 +85,8 @@ async function login() {
     provider: "discord",
     options: {
       scopes: "identify guilds",
-      redirectTo: `${DASHBOARD_URL}/auth/callback/`
-    }
+      redirectTo: REDIRECT_TO,
+    },
   });
 
   if (error) {
@@ -107,7 +101,7 @@ async function logout() {
     throw new Error(`logout: ${error.message}`);
   }
 
-  location.href = "./";
+  window.location.href = "./";
 }
 
 async function loadManageableGuilds(discordId) {
@@ -126,6 +120,7 @@ async function loadManageableGuilds(discordId) {
   for (const row of adminRows || []) {
     const guildId = row?.guild_id;
     if (!guildId || seenGuildIds.has(guildId)) continue;
+
     seenGuildIds.add(guildId);
     uniqueAdminRows.push(row);
   }
@@ -133,10 +128,7 @@ async function loadManageableGuilds(discordId) {
   const guildIds = uniqueAdminRows.map((row) => row.guild_id);
 
   if (guildIds.length === 0) {
-    return {
-      guilds: [],
-      missingGuildIds: []
-    };
+    return { guilds: [], missingGuildIds: [] };
   }
 
   const { data: guildRows, error: guildError } = await supabase
@@ -153,18 +145,15 @@ async function loadManageableGuilds(discordId) {
     uniqueAdminRows.map((row) => [row.guild_id, row.role || "admin"])
   );
 
-  const foundGuildIdSet = new Set((guildRows || []).map((guild) => guild.guild_id));
-  const missingGuildIds = guildIds.filter((guildId) => !foundGuildIdSet.has(guildId));
+  const foundGuildIds = new Set((guildRows || []).map((guild) => guild.guild_id));
+  const missingGuildIds = guildIds.filter((guildId) => !foundGuildIds.has(guildId));
 
   const guilds = (guildRows || []).map((guild) => ({
     ...guild,
-    role: roleMap.get(guild.guild_id) || "admin"
+    role: roleMap.get(guild.guild_id) || "admin",
   }));
 
-  return {
-    guilds,
-    missingGuildIds
-  };
+  return { guilds, missingGuildIds };
 }
 
 function bindAction(id, handler) {
@@ -175,11 +164,11 @@ function bindAction(id, handler) {
 
 function renderLoggedOut() {
   renderMessage(`
-    <h2>Добро пожаловать</h2>
-    <p class="muted">Войди через Discord, чтобы открыть список доступных серверов.</p>
-    <div class="actions">
-      <button type="button" id="loginBtn">Login with Discord</button>
-    </div>
+    <section class="card">
+      <h2>Добро пожаловать</h2>
+      <p>Войди через Discord, чтобы открыть список доступных серверов.</p>
+      <button id="loginBtn" type="button">Login with Discord</button>
+    </section>
   `);
 
   bindAction("loginBtn", async () => {
@@ -193,18 +182,16 @@ function renderLoggedOut() {
 
 function renderNoAccess(user, discordId) {
   renderMessage(`
-    <h2>Серверов нет</h2>
-    <p><b>${escapeHtml(getDisplayName(user))}</b></p>
-    <p class="small">Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-
-    <div class="actions">
-      <button type="button" class="secondary" id="logoutBtn">Logout</button>
-      <a class="button" href="${escapeHtml(getInviteUrl())}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-    </div>
-
-    <div class="card">
-      Для этого Discord ID пока нет записей в <b>guild_admins</b>.
-    </div>
+    <section class="card">
+      <h2>Серверов нет</h2>
+      <p>${escapeHtml(getDisplayName(user))}</p>
+      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+      <div class="actions">
+        <button id="logoutBtn" type="button">Logout</button>
+        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
+      </div>
+      <p>Для этого Discord ID пока нет записей в guild_admins.</p>
+    </section>
   `);
 
   bindAction("logoutBtn", async () => {
@@ -218,23 +205,19 @@ function renderNoAccess(user, discordId) {
 
 function renderPartialAccess(user, discordId, missingGuildIds) {
   renderMessage(`
-    <h2>Серверы пока не готовы</h2>
-    <p><b>${escapeHtml(getDisplayName(user))}</b></p>
-    <p class="small">Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-
-    <div class="actions">
-      <button type="button" class="secondary" id="logoutBtn">Logout</button>
-      <a class="button" href="${escapeHtml(getInviteUrl())}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-    </div>
-
-    <div class="card">
-      Для вашего Discord ID найдены записи в <b>guild_admins</b>, но данные серверов ещё не появились в <b>bot_guilds</b>.
-    </div>
-
-    <div class="card">
-      <div><b>Ожидают синхронизации:</b></div>
-      <div class="small">${missingGuildIds.map((id) => escapeHtml(id)).join("<br>")}</div>
-    </div>
+    <section class="card">
+      <h2>Серверы пока не готовы</h2>
+      <p>${escapeHtml(getDisplayName(user))}</p>
+      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+      <div class="actions">
+        <button id="logoutBtn" type="button">Logout</button>
+        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
+      </div>
+      <p>Для вашего Discord ID найдены записи в guild_admins, но данные серверов ещё не появились в bot_guilds.</p>
+      <ul>
+        ${missingGuildIds.map((id) => `<li>${escapeHtml(id)}</li>`).join("")}
+      </ul>
+    </section>
   `);
 
   bindAction("logoutBtn", async () => {
@@ -248,29 +231,21 @@ function renderPartialAccess(user, discordId, missingGuildIds) {
 
 function renderGuilds(user, discordId, guilds, missingGuildIds = []) {
   renderMessage(`
-    <h2>Ваши серверы</h2>
-    <p><b>${escapeHtml(getDisplayName(user))}</b></p>
-    <p class="small">Discord ID: ${escapeHtml(discordId || "не найден")}</p>
-
-    <div class="actions">
-      <button type="button" class="secondary" id="logoutBtn">Logout</button>
-      <a class="button" href="${escapeHtml(getInviteUrl())}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
-    </div>
-
-    ${
-      missingGuildIds.length > 0
-        ? `
-          <div class="card">
-            <b>Часть серверов ещё не синхронизирована.</b>
-            <div class="small">
-              Не найдены в bot_guilds: ${missingGuildIds.map((id) => escapeHtml(id)).join(", ")}
-            </div>
-          </div>
-        `
-        : ""
-    }
-
-    <div id="servers" class="card-list"></div>
+    <section class="card">
+      <h2>Ваши серверы</h2>
+      <p>${escapeHtml(getDisplayName(user))}</p>
+      <p>Discord ID: ${escapeHtml(discordId || "не найден")}</p>
+      <div class="actions">
+        <button id="logoutBtn" type="button">Logout</button>
+        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite Bot</a>
+      </div>
+      ${
+        missingGuildIds.length > 0
+          ? `<p>Не найдены в bot_guilds: ${missingGuildIds.map((id) => escapeHtml(id)).join(", ")}</p>`
+          : ""
+      }
+      <div id="servers" class="servers"></div>
+    </section>
   `);
 
   bindAction("logoutBtn", async () => {
@@ -286,33 +261,30 @@ function renderGuilds(user, discordId, guilds, missingGuildIds = []) {
     throw new Error('Element with id="servers" was not created');
   }
 
-  serversBox.innerHTML = guilds.map((guild) => {
-    const guildName = escapeHtml(guild.name || "Server");
-    const guildId = escapeHtml(guild.guild_id);
-    const guildRole = escapeHtml(guild.role || "admin");
-    const manageUrl = `./manage.html?guild=${encodeURIComponent(guild.guild_id)}`;
+  serversBox.innerHTML = guilds
+    .map((guild) => {
+      const guildName = escapeHtml(guild.name || "Server");
+      const guildId = escapeHtml(guild.guild_id);
+      const guildRole = escapeHtml(guild.role || "admin");
+      const manageUrl = `./manage.html?guild=${encodeURIComponent(guild.guild_id)}`;
+      const iconUrl = getGuildIconUrl(guild.guild_id, guild.icon);
+      const iconHtml = iconUrl
+        ? `<img class="server-icon" src="${iconUrl}" alt="${guildName} icon">`
+        : `<div class="server-icon fallback">LF</div>`;
 
-    const iconHtml = guild.icon
-      ? `<img class="server-icon" src="${escapeHtml(getGuildIconUrl(guild.guild_id, guild.icon))}" alt="${guildName}">`
-      : `<div class="server-icon">LF</div>`;
-
-    return `
-      <div class="card">
-        <div class="server-head">
+      return `
+        <article class="server-card">
           ${iconHtml}
-          <div>
-            <div><b>${guildName}</b></div>
-            <div class="small">Guild ID: ${guildId}</div>
-            <div class="small">Role: ${guildRole}</div>
+          <div class="server-info">
+            <h3>${guildName}</h3>
+            <p>Guild ID: ${guildId}</p>
+            <p>Role: ${guildRole}</p>
           </div>
-        </div>
-
-        <div class="actions">
-          <a class="button" href="${manageUrl}">Manage</a>
-        </div>
-      </div>
-    `;
-  }).join("");
+          <a class="manage-link" href="${manageUrl}">Manage</a>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 async function init() {
@@ -323,7 +295,6 @@ async function init() {
   }
 
   const session = data?.session;
-
   if (!session) {
     renderLoggedOut();
     return;
