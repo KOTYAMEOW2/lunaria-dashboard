@@ -3,119 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lunaria Fox — Авторизация</title>
+  <title>Авторизация — Lunaria Fox</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: #1a0f25;
-      color: #fff;
+      font-family: Arial, sans-serif;
+      background: #0f0b1a;
+      color: white;
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      min-height: 100vh;
+      padding: 20px;
     }
-    .card {
-      background: #241235;
-      padding: 28px 22px;
+
+    .box {
+      max-width: 520px;
+      width: 100%;
+      background: #1a1330;
+      border: 1px solid rgba(255,255,255,0.08);
       border-radius: 18px;
-      width: 340px;
-      text-align: center;
-      box-shadow: 0 10px 40px rgba(0,0,0,.35);
+      padding: 24px;
     }
-    .title { font-size: 22px; margin: 0 0 6px; }
-    .sub { opacity: .85; margin: 0 0 14px; }
-    .err {
-      margin-top: 14px;
-      text-align: left;
-      font-size: 13px;
-      line-height: 1.35;
-      background: rgba(255,255,255,.06);
-      padding: 12px;
-      border-radius: 12px;
+
+    .error {
+      color: #ff9ca8;
       white-space: pre-wrap;
       word-break: break-word;
-    }
-    .btn {
-      margin-top: 14px;
-      background: #8b5cf6;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 10px;
-      color: white;
-      font-size: 14px;
-      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1 class="title">🌙 Lunaria Fox</h1>
-    <p class="sub" id="status">Авторизация…</p>
-    <div class="err" id="details" style="display:none;"></div>
-    <button class="btn" id="btnHome" style="display:none;">На главную</button>
+  <div class="box">
+    <h1>Lunaria Fox Dashboard</h1>
+    <p id="status">Завершаем авторизацию...</p>
+    <div id="error" class="error"></div>
   </div>
 
   <script>
-    // ВАЖНО: вставь сюда свои значения из Supabase -> Settings -> API
     const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+    const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+    const DASHBOARD_URL = "https://lunaria-dashboard.pages.dev";
 
-    const statusEl = document.getElementById("status");
-    const detailsEl = document.getElementById("details");
-    const btnHome = document.getElementById("btnHome");
-
-    btnHome.onclick = () => window.location.href = "/";
-
-    function showError(title, err) {
-      statusEl.textContent = title;
-      detailsEl.style.display = "block";
-      btnHome.style.display = "inline-block";
-      detailsEl.textContent =
-        (err && (err.message || err.error_description || err.error || String(err))) || "Unknown error";
-    }
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     (async () => {
+      const status = document.getElementById("status");
+      const errorBox = document.getElementById("error");
+
       try {
-        if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.includes("PASTE_YOUR")) {
-          return showError("Не задан Supabase ANON ключ", "Открой Supabase -> Settings -> API -> anon public и вставь его в SUPABASE_ANON_KEY.");
-        }
-
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        // 1) PKCE flow: ?code=...
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
 
-        if (code) {
-          statusEl.textContent = "Обмен кода на сессию…";
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) return showError("Ошибка обмена кода", error);
-          // чистим URL от code
-          window.history.replaceState({}, document.title, "/auth/callback");
-          statusEl.textContent = "Готово. Переходим…";
-          return window.location.replace("/");
+        if (!code) {
+          status.textContent = "Код авторизации не найден.";
+          return;
         }
 
-        // 2) Implicit flow: #access_token=...
-        if (window.location.hash && window.location.hash.includes("access_token")) {
-          statusEl.textContent = "Сохранение сессии…";
-          // универсальный способ для hash
-          const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
-          if (error) return showError("Ошибка сохранения сессии", error);
-          statusEl.textContent = "Готово. Переходим…";
-          return window.location.replace("/");
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+        if (error) {
+          status.textContent = "Ошибка авторизации.";
+          errorBox.textContent = error.message;
+          return;
         }
 
-        // Если ни code, ни access_token — значит Discord/Supabase вернули ошибку или редирект не тот
-        return showError(
-          "В callback не пришли данные авторизации",
-          "Не вижу ни ?code=..., ни #access_token=...\nПроверь Redirect URLs в Supabase и Redirects в Discord."
-        );
-
+        status.textContent = "Успешно. Перенаправляем...";
+        window.location.href = `${DASHBOARD_URL}/`;
       } catch (e) {
-        return showError("Критическая ошибка на callback", e);
+        status.textContent = "Ошибка callback.";
+        errorBox.textContent = e.message || String(e);
       }
     })();
   </script>
