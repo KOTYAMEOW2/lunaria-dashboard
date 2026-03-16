@@ -4,11 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lunaria Fox Dashboard</title>
+  <link rel="stylesheet" href="./style.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-  <h1>Lunaria Fox Dashboard</h1>
-  <div id="view">Загрузка...</div>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Lunaria Fox Dashboard</h1>
+        <p class="muted">Панель управления серверами</p>
+      </div>
+    </div>
+
+    <div id="view">Загрузка...</div>
+  </div>
+
   <script src="./app.js"></script>
 </body>
 </html>
