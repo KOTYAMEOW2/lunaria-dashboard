@@ -4,77 +4,79 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Авторизация — Lunaria Fox</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #0f0b1a;
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
-
-    .box {
-      max-width: 520px;
-      width: 100%;
-      background: #1a1330;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 18px;
-      padding: 24px;
-    }
-
-    .error {
-      color: #ff9ca8;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-  </style>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div class="box">
+  <main class="container">
     <h1>Lunaria Fox Dashboard</h1>
-    <p id="status">Завершаем авторизацию...</p>
-    <div id="error" class="error"></div>
-  </div>
+    <p>Завершаем авторизацию...</p>
+    <div id="status" class="card">Проверка callback...</div>
+  </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-    const DASHBOARD_URL = "https://lunaria-dashboard.pages.dev";
+    (function () {
+      var SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
+      var SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+      var statusEl = document.getElementById("status");
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    (async () => {
-      const status = document.getElementById("status");
-      const errorBox = document.getElementById("error");
-
-      try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
-
-        if (!code) {
-          status.textContent = "Код авторизации не найден.";
-          return;
-        }
-
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-        if (error) {
-          status.textContent = "Ошибка авторизации.";
-          errorBox.textContent = error.message;
-          return;
-        }
-
-        status.textContent = "Успешно. Перенаправляем...";
-        window.location.href = `${DASHBOARD_URL}/`;
-      } catch (e) {
-        status.textContent = "Ошибка callback.";
-        errorBox.textContent = e.message || String(e);
+      function setStatus(title, text) {
+        if (!statusEl) return;
+        statusEl.innerHTML =
+          "<h2>" + escapeHtml(title) + "</h2>" +
+          "<p>" + escapeHtml(text) + "</p>";
       }
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      if (!window.supabase || typeof window.supabase.createClient !== "function") {
+        setStatus("Ошибка", "Supabase library is not loaded.");
+        return;
+      }
+
+      var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+      async function finishAuth() {
+        try {
+          var url = new URL(window.location.href);
+          var code = url.searchParams.get("code");
+          var errorDescription = url.searchParams.get("error_description");
+          var errorCode = url.searchParams.get("error");
+
+          if (errorCode || errorDescription) {
+            setStatus("Ошибка авторизации", errorDescription || errorCode || "OAuth error");
+            return;
+          }
+
+          if (!code) {
+            setStatus("Ошибка", "В callback URL нет параметра code.");
+            return;
+          }
+
+          setStatus("Авторизация", "Обмениваем code на session...");
+
+          var result = await supabase.auth.exchangeCodeForSession(code);
+
+          if (result.error) {
+            setStatus("Ошибка обмена", result.error.message || "exchangeCodeForSession failed");
+            return;
+          }
+
+          setStatus("Успешно", "Перенаправляем в dashboard...");
+          window.location.replace("/");
+        } catch (error) {
+          setStatus("Ошибка", error && error.message ? error.message : String(error));
+        }
+      }
+
+      finishAuth();
     })();
   </script>
 </body>
