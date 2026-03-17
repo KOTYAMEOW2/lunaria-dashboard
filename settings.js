@@ -4,6 +4,7 @@ const root =
 
 const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+const STORAGE_KEY = "guild-config.json";
 
 function show(text) {
   root.innerHTML = "<pre>" + String(text) + "</pre>";
@@ -17,10 +18,26 @@ function getDiscordId(user) {
   );
 }
 
+function normalizeGuildConfig(config) {
+  const current = config || {};
+
+  return {
+    prefix: typeof current.prefix === "string" ? current.prefix : ".",
+    enabledModules: {
+      moderation: current.enabledModules?.moderation !== false,
+      lunarialog: current.enabledModules?.lunarialog !== false,
+      tickets: current.enabledModules?.tickets === true,
+      voicemaster: current.enabledModules?.voicemaster === true,
+      serverpanel: current.enabledModules?.serverpanel !== false
+    },
+    modRoles: Array.isArray(current.modRoles) ? current.modRoles : [],
+    adminRoles: Array.isArray(current.adminRoles) ? current.adminRoles : [],
+    disabledCommands: Array.isArray(current.disabledCommands) ? current.disabledCommands : []
+  };
+}
+
 async function start() {
   try {
-    show("settings.js started...");
-
     if (!window.supabase) {
       show("ERROR: supabase not loaded");
       return;
@@ -46,7 +63,6 @@ async function start() {
     const session = sessionRes.data?.session;
 
     if (!session) {
-      show("NO SESSION");
       window.location.href = "./";
       return;
     }
@@ -91,30 +107,34 @@ async function start() {
       return;
     }
 
-    const configRes = await supabase
-      .from("guild_configs")
+    const storageRes = await supabase
+      .from("bot_storage")
       .select("*")
-      .eq("guild_id", guildId)
+      .eq("key", STORAGE_KEY)
       .maybeSingle();
 
-    if (configRes.error) {
-      show("ERROR guild_configs: " + configRes.error.message);
+    if (storageRes.error) {
+      show("ERROR bot_storage read: " + storageRes.error.message);
       return;
     }
 
-    const guild = guildRes.data;
-    const config = configRes.data || {};
+    const storageValue =
+      storageRes.data?.value && typeof storageRes.data.value === "object"
+        ? storageRes.data.value
+        : {};
+
+    const guildConfig = normalizeGuildConfig(storageValue[guildId]);
 
     root.innerHTML = "";
 
     const title = document.createElement("h2");
-    title.textContent = (guild.name || "Server") + " Settings";
+    title.textContent = (guildRes.data.name || "Server") + " Settings";
 
     const info = document.createElement("p");
-    info.textContent = "Guild ID: " + guild.guild_id + " | Role: " + adminRes.data.role;
+    info.textContent = "Guild ID: " + guildRes.data.guild_id + " | Role: " + adminRes.data.role;
 
     const back = document.createElement("a");
-    back.href = "./manage.html?guild=" + encodeURIComponent(guild.guild_id);
+    back.href = "./manage.html?guild=" + encodeURIComponent(guildRes.data.guild_id);
     back.textContent = "← Back to Manage";
 
     const prefixLabel = document.createElement("label");
@@ -123,7 +143,31 @@ async function start() {
     const prefixInput = document.createElement("input");
     prefixInput.type = "text";
     prefixInput.maxLength = 5;
-    prefixInput.value = config.prefix || "!";
+    prefixInput.value = guildConfig.prefix || ".";
+
+    const modulesTitle = document.createElement("h3");
+    modulesTitle.textContent = "Enabled modules";
+
+    function makeCheckbox(labelText, checked) {
+      const wrap = document.createElement("div");
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+
+      input.type = "checkbox";
+      input.checked = !!checked;
+
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + labelText));
+      wrap.appendChild(label);
+
+      return { wrap, input };
+    }
+
+    const moderation = makeCheckbox("Moderation", guildConfig.enabledModules.moderation);
+    const lunarialog = makeCheckbox("LunariaLog", guildConfig.enabledModules.lunarialog);
+    const tickets = makeCheckbox("Tickets", guildConfig.enabledModules.tickets);
+    const voicemaster = makeCheckbox("VoiceMaster", guildConfig.enabledModules.voicemaster);
+    const serverpanel = makeCheckbox("Server Panel", guildConfig.enabledModules.serverpanel);
 
     const saveBtn = document.createElement("button");
     saveBtn.textContent = "Save";
@@ -135,15 +179,30 @@ async function start() {
       saveBtn.disabled = true;
       status.textContent = "Saving...";
 
-      const payload = {
-        guild_id: guild.guild_id,
-        prefix: (prefixInput.value || "!").trim().slice(0, 5) || "!",
-        updated_at: new Date().toISOString()
+      const currentStorage = { ...storageValue };
+
+      currentStorage[guildId] = {
+        ...guildConfig,
+        prefix: (prefixInput.value || ".").trim().slice(0, 5) || ".",
+        enabledModules: {
+          moderation: moderation.input.checked,
+          lunarialog: lunarialog.input.checked,
+          tickets: tickets.input.checked,
+          voicemaster: voicemaster.input.checked,
+          serverpanel: serverpanel.input.checked
+        }
       };
 
       const saveRes = await supabase
-        .from("guild_configs")
-        .upsert(payload, { onConflict: "guild_id" });
+        .from("bot_storage")
+        .upsert(
+          {
+            key: STORAGE_KEY,
+            value: currentStorage,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "key" }
+        );
 
       saveBtn.disabled = false;
 
@@ -165,6 +224,13 @@ async function start() {
     root.appendChild(document.createElement("br"));
     root.appendChild(prefixInput);
     root.appendChild(document.createElement("br"));
+    root.appendChild(document.createElement("br"));
+    root.appendChild(modulesTitle);
+    root.appendChild(moderation.wrap);
+    root.appendChild(lunarialog.wrap);
+    root.appendChild(tickets.wrap);
+    root.appendChild(voicemaster.wrap);
+    root.appendChild(serverpanel.wrap);
     root.appendChild(document.createElement("br"));
     root.appendChild(saveBtn);
     root.appendChild(status);
