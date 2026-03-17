@@ -17,17 +17,35 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function show(html) {
+  if (!manageView) {
+    throw new Error('Element with id="manageView" not found');
+  }
+  manageView.innerHTML = html;
+}
+
+function card(title, bodyHtml) {
+  let html = '<section class="card">';
+  if (title) {
+    html += "<h2>" + escapeHtml(title) + "</h2>";
+  }
+  html += bodyHtml;
+  html += "</section>";
+  show(html);
+}
+
+function errorText(error) {
+  if (!error) return "Unknown error";
+  if (error.message) return error.message;
+  return String(error);
+}
+
 if (!manageView) {
-  throw new Error('Element #manageView not found');
+  throw new Error('Element with id="manageView" not found');
 }
 
 if (!window.supabase || typeof window.supabase.createClient !== "function") {
-  manageView.innerHTML = `
-    <section class="card">
-      <h2>Ошибка</h2>
-      <p>Supabase library is not loaded.</p>
-    </section>
-  `;
+  card("Ошибка", "<p>Supabase library is not loaded.</p>");
   throw new Error("Supabase library is not loaded");
 }
 
@@ -53,21 +71,21 @@ function getGuildIdFromUrl() {
 
 function getGuildIconUrl(guildId, icon) {
   if (!guildId || !icon) return "";
-  return `https://cdn.discordapp.com/icons/${encodeURIComponent(guildId)}/${encodeURIComponent(icon)}.png?size=128`;
+  return (
+    "https://cdn.discordapp.com/icons/" +
+    encodeURIComponent(guildId) +
+    "/" +
+    encodeURIComponent(icon) +
+    ".png?size=128"
+  );
 }
 
 function getInviteUrl() {
-  return `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_BOT_CLIENT_ID)}&scope=bot%20applications.commands&permissions=8`;
-}
-
-async function logout() {
-  const { error } = await supabase.auth.signOut();
-
-  if (error) {
-    throw new Error(`logout: ${error.message}`);
-  }
-
-  window.location.href = "./";
+  return (
+    "https://discord.com/oauth2/authorize?client_id=" +
+    encodeURIComponent(DISCORD_BOT_CLIENT_ID) +
+    "&scope=bot%20applications.commands&permissions=8"
+  );
 }
 
 function bindAction(id, handler) {
@@ -76,79 +94,79 @@ function bindAction(id, handler) {
   element.addEventListener("click", handler);
 }
 
+async function logout() {
+  const res = await supabase.auth.signOut();
+  if (res.error) {
+    throw res.error;
+  }
+  window.location.href = "./";
+}
+
 function renderError(message, showBackLink = true) {
-  manageView.innerHTML = `
-    <section class="card">
-      <h2>Ошибка</h2>
-      <p>${escapeHtml(message)}</p>
-      ${showBackLink ? '<p><a href="./">Назад</a></p>' : ""}
-    </section>
-  `;
+  card(
+    "Ошибка",
+    "<p>" + escapeHtml(message) + "</p>" +
+      (showBackLink ? '<p><a href="./">Назад</a></p>' : "")
+  );
 }
 
 function renderNoAccess() {
-  manageView.innerHTML = `
-    <section class="card">
-      <h2>Доступ запрещён</h2>
-      <p>У тебя нет доступа к этому серверу.</p>
-      <p><a href="./">Назад</a></p>
-    </section>
-  `;
+  card(
+    "Доступ запрещён",
+    "<p>У тебя нет доступа к этому серверу.</p>" +
+      '<p><a href="./">Назад</a></p>'
+  );
 }
 
 function renderGuildNotFound() {
-  manageView.innerHTML = `
-    <section class="card">
-      <h2>Сервер не найден</h2>
-      <p>Сервер отсутствует в bot_guilds.</p>
-      <p><a href="./">Назад</a></p>
-    </section>
-  `;
+  card(
+    "Сервер не найден",
+    "<p>Сервер отсутствует в bot_guilds.</p>" +
+      '<p><a href="./">Назад</a></p>'
+  );
 }
 
-function renderManagePage(guild, adminRole) {
+function renderManagePage(guild, role) {
   const guildName = escapeHtml(guild?.name || "Server");
   const guildId = escapeHtml(guild?.guild_id || "");
-  const role = escapeHtml(adminRole || "admin");
+  const adminRole = escapeHtml(role || "admin");
+  const encodedGuildId = encodeURIComponent(guild?.guild_id || "");
   const iconUrl = getGuildIconUrl(guild?.guild_id, guild?.icon);
 
-  const iconHtml = iconUrl
-    ? `<img class="server-icon large" src="${iconUrl}" alt="${guildName} icon">`
-    : `<div class="server-icon fallback large">LF</div>`;
+  let html = "";
+  html += '<div class="actions">';
+  html += '<a href="./">← Назад к серверам</a>';
+  html += '<button id="logoutBtn" type="button">Logout</button>';
+  html += "</div>";
 
-  const encodedGuildId = encodeURIComponent(guild?.guild_id || "");
+  html += '<div class="manage-header">';
+  if (iconUrl) {
+    html += '<img class="server-icon" src="' + iconUrl + '" alt="' + guildName + ' icon">';
+  } else {
+    html += '<div class="server-icon fallback">LF</div>';
+  }
+  html += '<div class="server-info">';
+  html += "<h1>" + guildName + "</h1>";
+  html += "<p>Guild ID: " + guildId + "</p>";
+  html += "<p>Role: " + adminRole + "</p>";
+  html += "</div>";
+  html += "</div>";
 
-  manageView.innerHTML = `
-    <section class="card">
-      <div class="actions">
-        <a href="./">← Назад к серверам</a>
-        <button id="logoutBtn" type="button">Logout</button>
-      </div>
+  html += '<nav class="manage-links">';
+  html += '<a href="./rules.html?guild=' + encodedGuildId + '">Rules</a>';
+  html += '<a href="./punishments.html?guild=' + encodedGuildId + '">Punishments</a>';
+  html += '<a href="./logs.html?guild=' + encodedGuildId + '">Logs</a>';
+  html += '<a href="./settings.html?guild=' + encodedGuildId + '">Settings</a>';
+  html += '<a href="' + getInviteUrl() + '" target="_blank" rel="noopener noreferrer">Invite</a>';
+  html += "</nav>";
 
-      <div class="manage-header">
-        ${iconHtml}
-        <div>
-          <h1>${guildName}</h1>
-          <p>Guild ID: ${guildId}</p>
-          <p>Role: ${role}</p>
-        </div>
-      </div>
+  card("", html);
 
-      <nav class="manage-links">
-        <a href="./rules.html?guild=${encodedGuildId}">Rules</a>
-        <a href="./punishments.html?guild=${encodedGuildId}">Punishments</a>
-        <a href="./logs.html?guild=${encodedGuildId}">Logs</a>
-        <a href="./settings.html?guild=${encodedGuildId}">Settings</a>
-        <a href="${getInviteUrl()}" target="_blank" rel="noopener noreferrer">Invite</a>
-      </nav>
-    </section>
-  `;
-
-  bindAction("logoutBtn", async () => {
+  bindAction("logoutBtn", async function () {
     try {
       await logout();
     } catch (error) {
-      renderError(`Ошибка выхода: ${error.message || String(error)}`, false);
+      renderError("Ошибка выхода: " + errorText(error), false);
     }
   });
 }
@@ -162,12 +180,12 @@ async function initManage() {
       return;
     }
 
-    const { data, error } = await supabase.auth.getSession();
-    if (error) {
-      throw new Error(`auth: ${error.message}`);
+    const sessionRes = await supabase.auth.getSession();
+    if (sessionRes.error) {
+      throw new Error("auth: " + sessionRes.error.message);
     }
 
-    const session = data?.session;
+    const session = sessionRes.data ? sessionRes.data.session : null;
     if (!session) {
       window.location.href = "./";
       return;
@@ -179,41 +197,41 @@ async function initManage() {
       return;
     }
 
-    const { data: adminRow, error: adminError } = await supabase
+    const adminRes = await supabase
       .from("guild_admins")
       .select("guild_id, role")
       .eq("guild_id", guildId)
       .eq("user_id", discordId)
       .maybeSingle();
 
-    if (adminError) {
-      throw new Error(`guild_admins: ${adminError.message}`);
+    if (adminRes.error) {
+      throw new Error("guild_admins: " + adminRes.error.message);
     }
 
-    if (!adminRow) {
+    if (!adminRes.data) {
       renderNoAccess();
       return;
     }
 
-    const { data: guild, error: guildError } = await supabase
+    const guildRes = await supabase
       .from("bot_guilds")
       .select("guild_id, name, icon, updated_at")
       .eq("guild_id", guildId)
       .maybeSingle();
 
-    if (guildError) {
-      throw new Error(`bot_guilds: ${guildError.message}`);
+    if (guildRes.error) {
+      throw new Error("bot_guilds: " + guildRes.error.message);
     }
 
-    if (!guild) {
+    if (!guildRes.data) {
       renderGuildNotFound();
       return;
     }
 
-    renderManagePage(guild, adminRow.role);
+    renderManagePage(guildRes.data, adminRes.data.role);
   } catch (error) {
     console.error("Manage init error:", error);
-    renderError(`Ошибка загрузки: ${error.message || String(error)}`);
+    renderError("Ошибка загрузки: " + errorText(error));
   }
 }
 
