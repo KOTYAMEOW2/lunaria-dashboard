@@ -1,24 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lunaria Fox Dashboard</title>
-  <link rel="stylesheet" href="./style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lunaria Dashboard</title>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div class="container">
-    <div class="topbar">
-      <div>
-        <h1>Lunaria Fox Dashboard</h1>
-        <p class="muted">Панель управления серверами</p>
-      </div>
-    </div>
+  <main class="container">
+    <div id="view"></div>
+  </main>
 
-    <div id="view">Не удалось загрузить app.js</div>
-  </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js"></script>
   <script src="./app.js"></script>
 </body>
