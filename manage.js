@@ -1,114 +1,141 @@
-const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
+var root = document.getElementById("manageView") || document.body;
 
-const root =
-  document.getElementById("manageView") ||
-  document.body;
+var CONFIG = window.LUNARIA_CONFIG || {};
 
-function show(text) {
-  root.innerHTML = "<pre>" + String(text) + "</pre>";
+var SUPABASE_URL = CONFIG.SUPABASE_URL;
+var SUPABASE_KEY = CONFIG.SUPABASE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  throw new Error("Config is missing SUPABASE_URL or SUPABASE_KEY");
 }
+
+function show(html) {
+  root.innerHTML = String(html);
+}
+
+function esc(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getDiscordId(user) {
+  if (!user) return null;
+
+  if (Array.isArray(user.identities)) {
+    for (var i = 0; i < user.identities.length; i += 1) {
+      var identity = user.identities[i];
+      if (identity && identity.provider === "discord" && identity.id) {
+        return identity.id;
+      }
+    }
+  }
+
+  if (user.user_metadata && user.user_metadata.provider_id) {
+    return user.user_metadata.provider_id;
+  }
+
+  if (user.user_metadata && user.user_metadata.sub) {
+    return user.user_metadata.sub;
+  }
+
+  if (user.app_metadata && user.app_metadata.provider_id) {
+    return user.app_metadata.provider_id;
+  }
+
+  return null;
+}
+
+if (!window.supabase || typeof window.supabase.createClient !== "function") {
+  throw new Error("Supabase library is not loaded");
+}
+
+var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function start() {
   try {
-    // 1. Проверка Supabase
-    if (!window.supabase) {
-      show("ERROR: supabase not loaded");
-      return;
-    }
-
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    // 2. Получаем guild из URL
-    const url = new URL(window.location.href);
-    const guildId = url.searchParams.get("guild");
+    var url = new URL(window.location.href);
+    var guildId = url.searchParams.get("guild");
 
     if (!guildId) {
-      show("ERROR: no guild id");
+      show('<div class="card"><h2>Ошибка</h2><p>Не передан guild id.</p></div>');
       return;
     }
 
-    // 3. Получаем сессию
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-    if (sessionError) {
-      show("ERROR session: " + sessionError.message);
+    var sessionRes = await supabase.auth.getSession();
+    if (sessionRes.error) {
+      show('<div class="card"><h2>Ошибка</h2><p>auth: ' + esc(sessionRes.error.message) + "</p></div>");
       return;
     }
 
-    const session = sessionData?.session;
-
+    var session = sessionRes.data && sessionRes.data.session ? sessionRes.data.session : null;
     if (!session) {
-      show("NO SESSION → redirect");
       window.location.href = "./";
       return;
     }
 
-    const user = session.user;
-
-    // 4. Получаем Discord ID
-    const discordId =
-      user?.user_metadata?.provider_id ||
-      user?.user_metadata?.sub ||
-      null;
-
+    var discordId = getDiscordId(session.user);
     if (!discordId) {
-      show("ERROR: no discord id");
+      show('<div class="card"><h2>Ошибка</h2><p>Discord ID не найден.</p></div>');
       return;
     }
 
-    // 5. Проверяем доступ
-    const { data: adminData, error: adminError } = await supabase
+    var adminRes = await supabase
       .from("guild_admins")
       .select("*")
       .eq("guild_id", guildId)
       .eq("user_id", discordId)
       .maybeSingle();
 
-    if (adminError) {
-      show("ERROR guild_admins: " + adminError.message);
+    if (adminRes.error) {
+      show('<div class="card"><h2>Ошибка</h2><p>guild_admins: ' + esc(adminRes.error.message) + "</p></div>");
       return;
     }
 
-    if (!adminData) {
-      show("NO ACCESS");
+    if (!adminRes.data) {
+      show('<div class="card"><h2>Нет доступа</h2><p>Для этого сервера у тебя нет доступа.</p></div>');
       return;
     }
 
-    // 6. Получаем сервер
-    const { data: guild, error: guildError } = await supabase
+    var guildRes = await supabase
       .from("bot_guilds")
       .select("*")
       .eq("guild_id", guildId)
       .maybeSingle();
 
-    if (guildError) {
-      show("ERROR bot_guilds: " + guildError.message);
+    if (guildRes.error) {
+      show('<div class="card"><h2>Ошибка</h2><p>bot_guilds: ' + esc(guildRes.error.message) + "</p></div>");
       return;
     }
 
-    if (!guild) {
-      show("GUILD NOT FOUND");
+    if (!guildRes.data) {
+      show('<div class="card"><h2>Сервер не найден</h2><p>Запись в bot_guilds отсутствует.</p></div>');
       return;
     }
 
-    // 7. Рендер (максимально просто)
-    root.innerHTML = `
-      <h1>${guild.name || "Server"}</h1>
-      <p>ID: ${guild.guild_id}</p>
-      <p>Role: ${adminData.role}</p>
+    var guild = guildRes.data;
+    var role = adminRes.data.role || "admin";
 
-      <hr>
+    var html = "";
+    html += '<div class="card">';
+    html += "<h2>" + esc(guild.name || "Server") + "</h2>";
+    html += "<p>Guild ID: " + esc(guild.guild_id) + "</p>";
+    html += "<p>Role: " + esc(role) + "</p>";
+    html += '<div class="actions">';
+    html += '<a class="manage-link" href="./">← Back</a> ';
+    html += '<a class="manage-link" href="./settings.html?guild=' + encodeURIComponent(guild.guild_id) + '">Settings</a> ';
+    html += '<a class="manage-link" href="./rules.html?guild=' + encodeURIComponent(guild.guild_id) + '">Rules</a> ';
+    html += '<a class="manage-link" href="./punishments.html?guild=' + encodeURIComponent(guild.guild_id) + '">Punishments</a> ';
+    html += '<a class="manage-link" href="./logs.html?guild=' + encodeURIComponent(guild.guild_id) + '">Logs</a>';
+    html += "</div>";
+    html += "</div>";
 
-      <a href="./">← Back</a><br><br>
-
-      <a href="./settings.html?guild=${guild.guild_id}">Settings</a><br>
-      <a href="./rules.html?guild=${guild.guild_id}">Rules</a><br>
-      <a href="./punishments.html?guild=${guild.guild_id}">Punishments</a><br>
-      <a href="./logs.html?guild=${guild.guild_id}">Logs</a>
-    `;
+    show(html);
   } catch (e) {
-    show("CRASH: " + (e?.message || e));
+    show('<div class="card"><h2>CRASH</h2><p>' + esc(e && e.message ? e.message : e) + "</p></div>");
   }
 }
 
