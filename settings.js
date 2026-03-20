@@ -1,34 +1,67 @@
-const root =
-  document.getElementById("settingsView") ||
-  document.body;
+var root = document.getElementById("settingsView") || document.body;
 
-const SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-const SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-const STORAGE_KEY = "guild-config.json";
+var CONFIG = window.LUNARIA_CONFIG || {};
 
-function show(text) {
-  root.innerHTML = "<pre>" + String(text) + "</pre>";
+var SUPABASE_URL = CONFIG.SUPABASE_URL;
+var SUPABASE_KEY = CONFIG.SUPABASE_KEY;
+var STORAGE_KEY =
+  (CONFIG.STORAGE_KEYS && CONFIG.STORAGE_KEYS.GUILD_CONFIG) || "guild-config.json";
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  throw new Error("Config is missing SUPABASE_URL or SUPABASE_KEY");
+}
+
+function show(html) {
+  root.innerHTML = String(html);
+}
+
+function esc(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function getDiscordId(user) {
-  return (
-    user?.user_metadata?.provider_id ||
-    user?.user_metadata?.sub ||
-    null
-  );
+  if (!user) return null;
+
+  if (Array.isArray(user.identities)) {
+    for (var i = 0; i < user.identities.length; i += 1) {
+      var identity = user.identities[i];
+      if (identity && identity.provider === "discord" && identity.id) {
+        return identity.id;
+      }
+    }
+  }
+
+  if (user.user_metadata && user.user_metadata.provider_id) {
+    return user.user_metadata.provider_id;
+  }
+
+  if (user.user_metadata && user.user_metadata.sub) {
+    return user.user_metadata.sub;
+  }
+
+  if (user.app_metadata && user.app_metadata.provider_id) {
+    return user.app_metadata.provider_id;
+  }
+
+  return null;
 }
 
 function normalizeGuildConfig(config) {
-  const current = config || {};
+  var current = config || {};
 
   return {
     prefix: typeof current.prefix === "string" ? current.prefix : ".",
     enabledModules: {
-      moderation: current.enabledModules?.moderation !== false,
-      lunarialog: current.enabledModules?.lunarialog !== false,
-      tickets: current.enabledModules?.tickets === true,
-      voicemaster: current.enabledModules?.voicemaster === true,
-      serverpanel: current.enabledModules?.serverpanel !== false
+      moderation: current.enabledModules && current.enabledModules.moderation !== false,
+      lunarialog: current.enabledModules && current.enabledModules.lunarialog !== false,
+      tickets: !!(current.enabledModules && current.enabledModules.tickets),
+      voicemaster: !!(current.enabledModules && current.enabledModules.voicemaster),
+      serverpanel: current.enabledModules && current.enabledModules.serverpanel !== false
     },
     modRoles: Array.isArray(current.modRoles) ? current.modRoles : [],
     adminRoles: Array.isArray(current.adminRoles) ? current.adminRoles : [],
@@ -36,45 +69,56 @@ function normalizeGuildConfig(config) {
   };
 }
 
+function makeCheckbox(labelText, checked) {
+  var wrap = document.createElement("div");
+  var label = document.createElement("label");
+  var input = document.createElement("input");
+
+  input.type = "checkbox";
+  input.checked = !!checked;
+
+  label.appendChild(input);
+  label.appendChild(document.createTextNode(" " + labelText));
+  wrap.appendChild(label);
+
+  return { wrap: wrap, input: input };
+}
+
+if (!window.supabase || typeof window.supabase.createClient !== "function") {
+  throw new Error("Supabase library is not loaded");
+}
+
+var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 async function start() {
   try {
-    if (!window.supabase) {
-      show("ERROR: supabase not loaded");
-      return;
-    }
-
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    const url = new URL(window.location.href);
-    const guildId = url.searchParams.get("guild");
+    var url = new URL(window.location.href);
+    var guildId = url.searchParams.get("guild");
 
     if (!guildId) {
-      show("ERROR: no guild id");
+      show('<div class="card"><h2>Ошибка</h2><p>Не передан guild id.</p></div>');
       return;
     }
 
-    const sessionRes = await supabase.auth.getSession();
-
+    var sessionRes = await supabase.auth.getSession();
     if (sessionRes.error) {
-      show("ERROR session: " + sessionRes.error.message);
+      show('<div class="card"><h2>Ошибка</h2><p>session: ' + esc(sessionRes.error.message) + "</p></div>");
       return;
     }
 
-    const session = sessionRes.data?.session;
-
+    var session = sessionRes.data && sessionRes.data.session ? sessionRes.data.session : null;
     if (!session) {
       window.location.href = "./";
       return;
     }
 
-    const discordId = getDiscordId(session.user);
-
+    var discordId = getDiscordId(session.user);
     if (!discordId) {
-      show("ERROR: no discord id");
+      show('<div class="card"><h2>Ошибка</h2><p>Discord ID не найден.</p></div>');
       return;
     }
 
-    const adminRes = await supabase
+    var adminRes = await supabase
       .from("guild_admins")
       .select("*")
       .eq("guild_id", guildId)
@@ -82,107 +126,106 @@ async function start() {
       .maybeSingle();
 
     if (adminRes.error) {
-      show("ERROR guild_admins: " + adminRes.error.message);
+      show('<div class="card"><h2>Ошибка</h2><p>guild_admins: ' + esc(adminRes.error.message) + "</p></div>");
       return;
     }
 
     if (!adminRes.data) {
-      show("NO ACCESS");
+      show('<div class="card"><h2>Нет доступа</h2><p>Для этого сервера у тебя нет доступа.</p></div>');
       return;
     }
 
-    const guildRes = await supabase
+    var guildRes = await supabase
       .from("bot_guilds")
       .select("*")
       .eq("guild_id", guildId)
       .maybeSingle();
 
     if (guildRes.error) {
-      show("ERROR bot_guilds: " + guildRes.error.message);
+      show('<div class="card"><h2>Ошибка</h2><p>bot_guilds: ' + esc(guildRes.error.message) + "</p></div>");
       return;
     }
 
     if (!guildRes.data) {
-      show("GUILD NOT FOUND");
+      show('<div class="card"><h2>Сервер не найден</h2><p>Запись в bot_guilds отсутствует.</p></div>');
       return;
     }
 
-    const storageRes = await supabase
+    var storageRes = await supabase
       .from("bot_storage")
       .select("*")
       .eq("key", STORAGE_KEY)
       .maybeSingle();
 
     if (storageRes.error) {
-      show("ERROR bot_storage read: " + storageRes.error.message);
+      show('<div class="card"><h2>Ошибка</h2><p>bot_storage: ' + esc(storageRes.error.message) + "</p></div>");
       return;
     }
 
-    const storageValue =
-      storageRes.data?.value && typeof storageRes.data.value === "object"
+    var storageValue =
+      storageRes.data &&
+      storageRes.data.value &&
+      typeof storageRes.data.value === "object"
         ? storageRes.data.value
         : {};
 
-    const guildConfig = normalizeGuildConfig(storageValue[guildId]);
+    var guildConfig = normalizeGuildConfig(storageValue[guildId]);
 
     root.innerHTML = "";
 
-    const title = document.createElement("h2");
+    var card = document.createElement("div");
+    card.className = "card";
+
+    var title = document.createElement("h2");
     title.textContent = (guildRes.data.name || "Server") + " Settings";
 
-    const info = document.createElement("p");
-    info.textContent = "Guild ID: " + guildRes.data.guild_id + " | Role: " + adminRes.data.role;
+    var info = document.createElement("p");
+    info.textContent =
+      "Guild ID: " + guildRes.data.guild_id + " | Role: " + (adminRes.data.role || "admin");
 
-    const back = document.createElement("a");
+    var back = document.createElement("a");
     back.href = "./manage.html?guild=" + encodeURIComponent(guildRes.data.guild_id);
     back.textContent = "← Back to Manage";
+    back.className = "manage-link";
 
-    const prefixLabel = document.createElement("label");
+    var prefixLabel = document.createElement("label");
     prefixLabel.textContent = "Prefix";
 
-    const prefixInput = document.createElement("input");
+    var prefixInput = document.createElement("input");
     prefixInput.type = "text";
     prefixInput.maxLength = 5;
     prefixInput.value = guildConfig.prefix || ".";
 
-    const modulesTitle = document.createElement("h3");
+    var modulesTitle = document.createElement("h3");
     modulesTitle.textContent = "Enabled modules";
 
-    function makeCheckbox(labelText, checked) {
-      const wrap = document.createElement("div");
-      const label = document.createElement("label");
-      const input = document.createElement("input");
+    var moderation = makeCheckbox("Moderation", guildConfig.enabledModules.moderation);
+    var lunarialog = makeCheckbox("LunariaLog", guildConfig.enabledModules.lunarialog);
+    var tickets = makeCheckbox("Tickets", guildConfig.enabledModules.tickets);
+    var voicemaster = makeCheckbox("VoiceMaster", guildConfig.enabledModules.voicemaster);
+    var serverpanel = makeCheckbox("Server Panel", guildConfig.enabledModules.serverpanel);
 
-      input.type = "checkbox";
-      input.checked = !!checked;
-
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(" " + labelText));
-      wrap.appendChild(label);
-
-      return { wrap, input };
-    }
-
-    const moderation = makeCheckbox("Moderation", guildConfig.enabledModules.moderation);
-    const lunarialog = makeCheckbox("LunariaLog", guildConfig.enabledModules.lunarialog);
-    const tickets = makeCheckbox("Tickets", guildConfig.enabledModules.tickets);
-    const voicemaster = makeCheckbox("VoiceMaster", guildConfig.enabledModules.voicemaster);
-    const serverpanel = makeCheckbox("Server Panel", guildConfig.enabledModules.serverpanel);
-
-    const saveBtn = document.createElement("button");
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button";
     saveBtn.textContent = "Save";
 
-    const status = document.createElement("p");
+    var status = document.createElement("p");
     status.textContent = "";
 
     saveBtn.addEventListener("click", async function () {
       saveBtn.disabled = true;
       status.textContent = "Saving...";
 
-      const currentStorage = { ...storageValue };
+      var currentStorage = {};
+      var key;
+
+      for (key in storageValue) {
+        if (Object.prototype.hasOwnProperty.call(storageValue, key)) {
+          currentStorage[key] = storageValue[key];
+        }
+      }
 
       currentStorage[guildId] = {
-        ...guildConfig,
         prefix: (prefixInput.value || ".").trim().slice(0, 5) || ".",
         enabledModules: {
           moderation: moderation.input.checked,
@@ -190,10 +233,13 @@ async function start() {
           tickets: tickets.input.checked,
           voicemaster: voicemaster.input.checked,
           serverpanel: serverpanel.input.checked
-        }
+        },
+        modRoles: guildConfig.modRoles,
+        adminRoles: guildConfig.adminRoles,
+        disabledCommands: guildConfig.disabledCommands
       };
 
-      const saveRes = await supabase
+      var saveRes = await supabase
         .from("bot_storage")
         .upsert(
           {
@@ -214,28 +260,30 @@ async function start() {
       status.textContent = "Saved";
     });
 
-    root.appendChild(title);
-    root.appendChild(info);
-    root.appendChild(document.createElement("hr"));
-    root.appendChild(back);
-    root.appendChild(document.createElement("br"));
-    root.appendChild(document.createElement("br"));
-    root.appendChild(prefixLabel);
-    root.appendChild(document.createElement("br"));
-    root.appendChild(prefixInput);
-    root.appendChild(document.createElement("br"));
-    root.appendChild(document.createElement("br"));
-    root.appendChild(modulesTitle);
-    root.appendChild(moderation.wrap);
-    root.appendChild(lunarialog.wrap);
-    root.appendChild(tickets.wrap);
-    root.appendChild(voicemaster.wrap);
-    root.appendChild(serverpanel.wrap);
-    root.appendChild(document.createElement("br"));
-    root.appendChild(saveBtn);
-    root.appendChild(status);
+    card.appendChild(title);
+    card.appendChild(info);
+    card.appendChild(document.createElement("hr"));
+    card.appendChild(back);
+    card.appendChild(document.createElement("br"));
+    card.appendChild(document.createElement("br"));
+    card.appendChild(prefixLabel);
+    card.appendChild(document.createElement("br"));
+    card.appendChild(prefixInput);
+    card.appendChild(document.createElement("br"));
+    card.appendChild(document.createElement("br"));
+    card.appendChild(modulesTitle);
+    card.appendChild(moderation.wrap);
+    card.appendChild(lunarialog.wrap);
+    card.appendChild(tickets.wrap);
+    card.appendChild(voicemaster.wrap);
+    card.appendChild(serverpanel.wrap);
+    card.appendChild(document.createElement("br"));
+    card.appendChild(saveBtn);
+    card.appendChild(status);
+
+    root.appendChild(card);
   } catch (e) {
-    show("CRASH: " + (e?.message || e));
+    show('<div class="card"><h2>CRASH</h2><p>' + esc(e && e.message ? e.message : e) + "</p></div>");
   }
 }
 
