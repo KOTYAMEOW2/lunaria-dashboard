@@ -127,6 +127,7 @@ async function start() {
     html += '<div class="actions">';
     html += '<a class="manage-link" href="./">← Back</a> ';
     html += '<a class="manage-link" href="./settings.html?guild=' + encodeURIComponent(guild.guild_id) + '">Settings</a> ';
+    html += '<a class="manage-link" href="./commands.html?guild=' + encodeURIComponent(guild.guild_id) + '">Commands</a> ';
     html += '<a class="manage-link" href="./rules.html?guild=' + encodeURIComponent(guild.guild_id) + '">Rules</a> ';
     html += '<a class="manage-link" href="./punishments.html?guild=' + encodeURIComponent(guild.guild_id) + '">Punishments</a> ';
     html += '<a class="manage-link" href="./logs.html?guild=' + encodeURIComponent(guild.guild_id) + '">Logs</a>';
