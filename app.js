@@ -1,8 +1,14 @@
 var view = document.getElementById("view");
 
-var SUPABASE_URL = "https://hqggzsfcswtqgwejblxe.supabase.co";
-var SUPABASE_KEY = "sb_publishable_6AmJxlgJz9BN47fIagW5lg_zjxAguyd";
-var REDIRECT_TO = "https://lunaria-dashboard.pages.dev/";
+var CONFIG = window.LUNARIA_CONFIG || {};
+
+var SUPABASE_URL = CONFIG.SUPABASE_URL;
+var SUPABASE_KEY = CONFIG.SUPABASE_KEY;
+var REDIRECT_TO = CONFIG.REDIRECT_TO || (window.location.origin + "/");
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  throw new Error("Config is missing SUPABASE_URL or SUPABASE_KEY");
+}
 
 function show(html) {
   if (!view) {
