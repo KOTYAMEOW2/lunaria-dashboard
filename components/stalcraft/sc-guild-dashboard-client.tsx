@@ -16,6 +16,7 @@ type Props = {
 };
 
 const roleKeys = [
+  ["clan_member", "Клановая роль"],
   ["verified", "SC Verified"],
   ["cw_participant", "КВ: Участвует"],
   ["leader", "SC Лидер"],

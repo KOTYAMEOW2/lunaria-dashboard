@@ -1,129 +1,24 @@
 import type { StalcraftCharacterCacheRow } from "@/lib/stalcraft/types";
-
-export type GearScreenshotSearchResult = {
-  itemId: string;
-  itemName: string;
-  itemNameRu?: string | null;
-  itemNameEn?: string | null;
-  slot: "weapon" | "armor";
-  category: string;
-  rank: string | null;
-  wikiUrl: string;
-  exact: boolean;
-  score: number;
-};
+import {
+  type GearScreenshotAnalysis,
+  type GearScreenshotSearchResult,
+  type OcrTextResult,
+  matchItem,
+  matchNickname,
+} from "@/lib/stalcraft/gear-ocr-core";
+export type { GearScreenshotAnalysis, GearScreenshotSearchResult } from "@/lib/stalcraft/gear-ocr-core";
 
 type OcrVariant = {
   key: string;
   mode: "nick" | "item" | "full";
   image: HTMLCanvasElement;
-};
-
-type OcrTextResult = {
-  key: string;
-  mode: "nick" | "item" | "full";
-  text: string;
-};
-
-type NicknameMatch = {
-  score: number;
-  line: string;
-  character: StalcraftCharacterCacheRow;
-};
-
-type ItemMatch = {
-  score: number;
-  line: string;
-  slot: "weapon" | "armor";
-  item: GearScreenshotSearchResult;
-  exact: boolean;
-};
-
-export type GearScreenshotAnalysis = {
-  nicknameMatch: NicknameMatch | null;
-  itemMatch: ItemMatch | null;
-  recognized: OcrTextResult[];
+  priority?: number;
+  slotHint?: "weapon" | "armor" | null;
 };
 
 function cleanText(value: unknown) {
   const text = String(value ?? "").trim();
   return text || null;
-}
-
-function normalizeNickname(value: unknown) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[\s_.\-]+/g, "")
-    .replace(/[^a-z0-9а-я]+/gi, "")
-    .trim();
-}
-
-function boundedLevenshtein(a: string, b: string, maxDistance = 3) {
-  if (a === b) return 0;
-  if (!a || !b) return Math.max(a.length, b.length);
-  if (Math.abs(a.length - b.length) > maxDistance) return null;
-
-  const prev = Array.from({ length: b.length + 1 }, (_, index) => index);
-  const next = new Array<number>(b.length + 1).fill(0);
-
-  for (let i = 1; i <= a.length; i += 1) {
-    next[0] = i;
-    let rowMin = next[0];
-
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      next[j] = Math.min(prev[j] + 1, next[j - 1] + 1, prev[j - 1] + cost);
-      rowMin = Math.min(rowMin, next[j]);
-    }
-
-    if (rowMin > maxDistance) return null;
-    for (let j = 0; j <= b.length; j += 1) prev[j] = next[j];
-  }
-
-  return prev[b.length] <= maxDistance ? prev[b.length] : null;
-}
-
-function scoreNicknameMatch(candidate: string, target: string) {
-  const left = normalizeNickname(candidate);
-  const right = normalizeNickname(target);
-  if (!left || !right) return 0;
-  if (left === right) return 1000;
-  if (left.includes(right) || right.includes(left)) return 900 - Math.abs(left.length - right.length) * 20;
-
-  const distance = boundedLevenshtein(left, right, 3);
-  if (distance !== null) return 760 - distance * 80;
-  return 0;
-}
-
-function splitLines(text: string) {
-  return String(text || "")
-    .split(/\r?\n/g)
-    .map((line) => cleanText(line))
-    .filter(Boolean) as string[];
-}
-
-function uniq<T>(values: T[]) {
-  return [...new Set(values)];
-}
-
-function cleanItemCandidate(value: string) {
-  return String(value || "")
-    .replace(/\|\s*\+\d+.*$/u, "")
-    .replace(/\+\d+.*$/u, "")
-    .replace(/[|¦]+.*$/u, "")
-    .replace(/^[^\p{L}\p{N}«"<]+/u, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isUsefulItemLine(value: string) {
-  const line = cleanItemCandidate(value);
-  if (!line || line.length < 3) return false;
-  if (/^(персональный предмет|ранг|класс|вес|прочность|владелец|итоговые характеристики|урон|тип боеприпасов|объем магазина|магазина|скорострельность|перезарядка|тактическая перезарядка|эргономика оружия|разброс|вертикальная отдача|горизонтальная отдача|скорость передвижения|выносливость|стойкость)$/i.test(line)) {
-    return false;
-  }
-  return /[a-zа-я0-9]/i.test(line);
 }
 
 function createCanvas(width: number, height: number) {
@@ -138,6 +33,42 @@ function applyThreshold(ctx: CanvasRenderingContext2D, width: number, height: nu
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
     const value = (data[i] + data[i + 1] + data[i + 2]) / 3 >= threshold ? 255 : 0;
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function applyLightTextMask(ctx: CanvasRenderingContext2D, width: number, height: number, threshold = 178) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const value = (r + g + b) / 3 >= threshold ? 255 : 0;
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function applyRedTextMask(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const isRedTitle =
+      r >= 100 &&
+      r >= g * 1.16 &&
+      r >= b * 1.08 &&
+      (r - g >= 14 || r - b >= 14);
+
+    const value = isRedTitle ? 255 : 0;
     data[i] = value;
     data[i + 1] = value;
     data[i + 2] = value;
@@ -160,20 +91,104 @@ async function loadImage(file: File) {
   }
 }
 
-async function buildVariants(file: File): Promise<OcrVariant[]> {
+async function buildVariants(file: File, slotHint: "weapon" | "armor" | null): Promise<OcrVariant[]> {
   const image = await loadImage(file);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
   if (!width || !height) throw new Error("У изображения нет корректного размера.");
 
   const crops = [
-    { key: "nick-tight", mode: "nick" as const, box: { x: 0.50, y: 0.09, w: 0.19, h: 0.07 } },
-    { key: "nick-wide", mode: "nick" as const, box: { x: 0.48, y: 0.08, w: 0.27, h: 0.12 } },
-    { key: "item-tight", mode: "item" as const, box: { x: 0.66, y: 0.16, w: 0.24, h: 0.38 } },
-    { key: "item-wide", mode: "item" as const, box: { x: 0.60, y: 0.12, w: 0.33, h: 0.56 } },
-    { key: "right-pane", mode: "item" as const, box: { x: 0.50, y: 0.06, w: 0.42, h: 0.78 } },
-    { key: "full", mode: "full" as const, box: { x: 0, y: 0, w: 1, h: 1 } },
-  ];
+    {
+      key: "nick-tight",
+      mode: "nick" as const,
+      box: { x: 0.50, y: 0.09, w: 0.19, h: 0.07 },
+      passes: ["soft", "white"] as const,
+      priority: 220,
+    },
+    {
+      key: "nick-wide",
+      mode: "nick" as const,
+      box: { x: 0.48, y: 0.08, w: 0.27, h: 0.12 },
+      passes: ["soft", "white"] as const,
+      priority: 180,
+    },
+    {
+      key: "weapon-title-tight",
+      mode: "item" as const,
+      box: { x: 0.68, y: 0.16, w: 0.18, h: 0.07 },
+      passes: ["soft", "red"] as const,
+      priority: 360,
+      slotHint: "weapon" as const,
+    },
+    {
+      key: "weapon-title-wide",
+      mode: "item" as const,
+      box: { x: 0.66, y: 0.14, w: 0.23, h: 0.11 },
+      passes: ["soft", "red"] as const,
+      priority: 320,
+      slotHint: "weapon" as const,
+    },
+    {
+      key: "weapon-list",
+      mode: "item" as const,
+      box: { x: 0.67, y: 0.10, w: 0.20, h: 0.30 },
+      passes: ["soft", "red"] as const,
+      priority: 260,
+      slotHint: "weapon" as const,
+    },
+    {
+      key: "armor-title-left",
+      mode: "item" as const,
+      box: { x: 0.30, y: 0.33, w: 0.22, h: 0.10 },
+      passes: ["soft", "red"] as const,
+      priority: 360,
+      slotHint: "armor" as const,
+    },
+    {
+      key: "armor-title-left-wide",
+      mode: "item" as const,
+      box: { x: 0.28, y: 0.30, w: 0.26, h: 0.15 },
+      passes: ["soft", "red"] as const,
+      priority: 320,
+      slotHint: "armor" as const,
+    },
+    {
+      key: "armor-selected-right",
+      mode: "item" as const,
+      box: { x: 0.68, y: 0.40, w: 0.20, h: 0.13 },
+      passes: ["soft", "red"] as const,
+      priority: 300,
+      slotHint: "armor" as const,
+    },
+    {
+      key: "item-detail-pane",
+      mode: "item" as const,
+      box: { x: 0.60, y: 0.12, w: 0.33, h: 0.56 },
+      passes: ["soft", "hard"] as const,
+      priority: 140,
+      slotHint,
+    },
+    {
+      key: "right-pane",
+      mode: "item" as const,
+      box: { x: 0.50, y: 0.06, w: 0.42, h: 0.78 },
+      passes: ["soft", "hard"] as const,
+      priority: 80,
+      slotHint,
+    },
+    {
+      key: "full",
+      mode: "full" as const,
+      box: { x: 0, y: 0, w: 1, h: 1 },
+      passes: ["soft"] as const,
+      priority: 20,
+      slotHint: null,
+    },
+  ].filter((crop) => {
+    if (slotHint === "weapon") return crop.slotHint !== "armor";
+    if (slotHint === "armor") return crop.slotHint !== "weapon";
+    return true;
+  });
 
   const variants: OcrVariant[] = [];
   for (const crop of crops) {
@@ -184,80 +199,44 @@ async function buildVariants(file: File): Promise<OcrVariant[]> {
     const targetWidth = Math.max(900, sw * 2);
     const targetHeight = Math.max(300, Math.floor((sh / sw) * targetWidth));
 
-    const softCanvas = createCanvas(targetWidth, targetHeight);
-    const softCtx = softCanvas.getContext("2d");
-    if (!softCtx) throw new Error("Canvas OCR не инициализировался.");
-    softCtx.filter = "grayscale(1) contrast(1.35) brightness(1.08)";
-    softCtx.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
-    softCtx.filter = "none";
-    variants.push({ key: `${crop.key}-soft`, mode: crop.mode, image: softCanvas });
+    for (const pass of crop.passes) {
+      const canvas = createCanvas(targetWidth, targetHeight);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas OCR не инициализировался.");
 
-    const hardCanvas = createCanvas(targetWidth, targetHeight);
-    const hardCtx = hardCanvas.getContext("2d");
-    if (!hardCtx) throw new Error("Canvas OCR не инициализировался.");
-    hardCtx.filter = "grayscale(1) contrast(1.6) brightness(1.12)";
-    hardCtx.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
-    hardCtx.filter = "none";
-    applyThreshold(hardCtx, targetWidth, targetHeight, 150);
-    variants.push({ key: `${crop.key}-hard`, mode: crop.mode, image: hardCanvas });
+      if (pass === "soft") {
+        ctx.filter = "grayscale(1) contrast(1.35) brightness(1.08)";
+      } else if (pass === "hard") {
+        ctx.filter = "grayscale(1) contrast(1.6) brightness(1.12)";
+      } else if (pass === "white") {
+        ctx.filter = "grayscale(1) contrast(1.48) brightness(1.2)";
+      } else if (pass === "red") {
+        ctx.filter = "contrast(1.35) saturate(1.2) brightness(1.08)";
+      }
+
+      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+      ctx.filter = "none";
+
+      if (pass === "hard") {
+        applyThreshold(ctx, targetWidth, targetHeight, 150);
+      } else if (pass === "white") {
+        applyLightTextMask(ctx, targetWidth, targetHeight, 178);
+      } else if (pass === "red") {
+        applyRedTextMask(ctx, targetWidth, targetHeight);
+      }
+
+      variants.push({
+        key: `${crop.key}-${pass}`,
+        mode: crop.mode,
+        image: canvas,
+        priority: crop.priority,
+        slotHint: crop.slotHint ?? null,
+      });
+    }
   }
 
   return variants;
 }
-
-function matchNickname(recognized: OcrTextResult[], characters: StalcraftCharacterCacheRow[]) {
-  const lines = recognized
-    .filter((entry) => entry.mode === "nick" || entry.mode === "full")
-    .flatMap((entry) => splitLines(entry.text));
-
-  let best: NicknameMatch | null = null;
-  for (const line of uniq(lines)) {
-    for (const character of characters) {
-      const score = scoreNicknameMatch(line, character.character_name);
-      if (!best || score > best.score) {
-        best = { score, line, character };
-      }
-    }
-  }
-
-  return best && best.score >= 720 ? best : null;
-}
-
-async function matchItem(
-  recognized: OcrTextResult[],
-  searchOfficial: (query: string, slot?: "weapon" | "armor" | null) => Promise<GearScreenshotSearchResult[]>,
-  slotHint: "weapon" | "armor" | null,
-) {
-  const lines = recognized
-    .filter((entry) => entry.mode === "item" || entry.mode === "full")
-    .flatMap((entry) => splitLines(entry.text))
-    .map((line) => cleanItemCandidate(line))
-    .filter(isUsefulItemLine);
-
-  let best: ItemMatch | null = null;
-  const slots = slotHint ? [slotHint] : (["weapon", "armor"] as const);
-
-  for (const line of uniq(lines)) {
-    for (const slot of slots) {
-      const matches = await searchOfficial(line, slot);
-      const top = matches[0];
-      if (!top) continue;
-
-      if (!best || top.score > best.score) {
-        best = {
-          score: top.score,
-          line,
-          slot,
-          item: top,
-          exact: top.exact,
-        };
-      }
-    }
-  }
-
-  return best && best.score >= 700 ? best : null;
-}
-
 export async function analyzeGearScreenshotInBrowser({
   file,
   characters,
@@ -273,7 +252,7 @@ export async function analyzeGearScreenshotInBrowser({
   const worker = await createWorker("eng+rus");
 
   try {
-    const variants = await buildVariants(file);
+    const variants = await buildVariants(file, slotHint);
     const recognized: OcrTextResult[] = [];
 
     for (const variant of variants) {
@@ -295,6 +274,8 @@ export async function analyzeGearScreenshotInBrowser({
         key: variant.key,
         mode: variant.mode,
         text: cleanText(result?.data?.text) || "",
+        priority: variant.priority || 0,
+        slotHint: variant.slotHint ?? null,
       });
     }
 
